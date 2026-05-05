@@ -1,0 +1,24 @@
+server {
+    listen 80 default_server;
+    server_name _;
+
+    root  {{ web_root }};
+    index index.php;
+
+    access_log /var/log/nginx/app_access.log;
+    error_log  /var/log/nginx/app_error.log;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass   unix:{{ php_fpm_socket }};
+        fastcgi_index  index.php;
+        fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include        fastcgi_params;
+    }
+
+    # Block direct access to the config file
+    location = /config.php { deny all; return 403; }
+}

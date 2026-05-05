@@ -1,0 +1,16 @@
+---
+# Run only database tasks.
+# To rotate the DB password:
+#   1. Update db_pass in group_vars/web.yml (re-encrypt with ansible-vault)
+#   2. ansible-playbook db.yml          # updates MySQL user password
+#   3. ansible-playbook web.yml --tags app_config  # pushes new config.php to web servers
+
+- name: Database
+  hosts: tag_Role_db
+  vars_files:
+    - inventory/group_vars/web.yml
+  vars:
+    db_root_pass: "{{ db_pass }}_root"
+  roles:
+    - common
+    - mariadb

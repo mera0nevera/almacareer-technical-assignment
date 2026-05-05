@@ -1,0 +1,68 @@
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user  haproxy
+    group haproxy
+    daemon
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    option  forwardfor
+    option  http-server-close
+    timeout connect  5s
+    timeout client  50s
+    timeout server  50s
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 408 /etc/haproxy/errors/408.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+    errorfile 503 /etc/haproxy/errors/503.http
+    errorfile 504 /etc/haproxy/errors/504.http
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+frontend http_front
+    bind *:80
+    http-request set-header X-Forwarded-Proto http
+    acl url_health path_beg /health
+    use_backend  health_backend if url_health
+    default_backend web_backend
+
+# ── Main backend – round-robin across all web servers ─────────────────────────
+# Server list is built at run-time from the 'web' inventory group.
+# To add a third web server: tag the instance Role=web03; no file edits needed.
+backend web_backend
+    balance roundrobin
+    option  httpchk GET /health.php
+    http-check expect status 200
+    # Cookie-based sticky sessions: HAProxy inserts SERVERID on first response.
+    # 'indirect' skips re-inserting when cookie already present.
+    # 'nocache' prevents CDN/proxy caches from storing the Set-Cookie header.
+    # 'httponly' blocks JavaScript access to the cookie.
+    cookie SERVERID insert indirect nocache httponly
+{% for host in groups['web'] | sort %}
+    server {{ hostvars[host]['tags']['Role'] }} {{ hostvars[host]['private_ip'] }}:80 check inter 5s fall 2 rise 3 cookie {{ hostvars[host]['tags']['Role'] }}
+{% endfor %}
+
+backend health_backend
+    balance roundrobin
+    option  httpchk GET /health.php
+    http-check expect status 200
+{% for host in groups['web'] | sort %}
+    server {{ hostvars[host]['tags']['Role'] }} {{ hostvars[host]['private_ip'] }}:80 check inter 5s fall 2 rise 3
+{% endfor %}
+
+# ── Stats page ────────────────────────────────────────────────────────────────
+listen stats
+    bind  *:8404
+    stats enable
+    stats uri  /stats
+    stats refresh 10s
+    stats show-legends
+    stats auth admin:admin123

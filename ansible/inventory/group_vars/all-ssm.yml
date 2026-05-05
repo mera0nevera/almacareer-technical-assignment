@@ -1,0 +1,21 @@
+---
+# SSM connection vars – used when running without SSH (ansible-ssm.cfg)
+# Each host connects via SSM Session Manager, not TCP port 22.
+#
+# The instance IAM role must have AmazonSSMManagedInstanceCore policy attached
+# (CDK already does this in lib/stacks/servers-stack.ts).
+#
+# To switch from SSH to SSM:
+#   1. Copy this file over group_vars/all.yml
+#   2. Use ansible-ssm.cfg instead of ansible.cfg
+#   3. Remove port 22 from the security groups in lib/stacks/network-stack.ts
+
+ansible_connection: community.aws.aws_ssm
+ansible_aws_ssm_bucket_name: ""          # leave empty – SSM uses its own temp storage
+ansible_aws_ssm_region: eu-central-1     # must match your AWS region
+ansible_become: true
+ansible_become_method: sudo
+ansible_user: ssm-user                   # SSM default session user
+
+# Dynamic inventory provides the instance ID as the host – SSM uses it to open sessions
+# No SSH key needed!

@@ -1,0 +1,77 @@
+---
+# Common role – applied to every host.
+# Sets hostname, NTP, admin user, SSH hardening, firewall.
+
+- name: Set system hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname_short }}"
+  tags: hostname
+
+- name: Install chrony (NTP)
+  ansible.builtin.dnf:
+    name: chrony
+    state: present
+  tags: ntp
+
+- name: Enable and start chronyd
+  ansible.builtin.service:
+    name: chronyd
+    state: started
+    enabled: true
+  tags: ntp
+
+- name: Ensure admin user exists
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    shell: /bin/bash
+    groups: wheel
+    append: true
+    state: present
+  tags: users
+
+- name: Allow {{ admin_user }} passwordless sudo
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ admin_user }}"
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: visudo -cf %s
+  tags: users
+
+- name: Authorize SSH public keys for {{ admin_user }}
+  ansible.posix.authorized_key:
+    user: "{{ admin_user }}"
+    state: present
+    key: "{{ lookup('file', '../lmc-key.pem.pub', errors='ignore') | default('') }}"
+  when: admin_ssh_pubkey is defined or lookup('file', '../lmc-key.pem.pub', errors='ignore')
+  tags: users
+
+- name: Harden SSH daemon configuration
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?{{ item.key }}"
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+  loop: "{{ sshd_config | dict2items }}"
+  notify: Restart sshd
+  tags: ssh
+
+- name: Install and enable firewalld
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+  tags: firewall
+
+- name: Start and enable firewalld
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+  tags: firewall
+
+- name: Allow SSH through firewall
+  ansible.posix.firewalld:
+    service: ssh
+    permanent: true
+    state: enabled
+    immediate: true
+  tags: firewall

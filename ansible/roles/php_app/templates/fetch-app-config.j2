@@ -1,0 +1,27 @@
+#!/bin/bash
+# Fetches the latest DB password from AWS Secrets Manager and rewrites config.php.
+# Run manually to pick up rotated credentials without redeploying:
+#   sudo systemctl restart fetch-app-config
+set -euo pipefail
+
+TOKEN=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" \
+    -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+REGION=$(curl -sf -H "X-aws-ec2-metadata-token: $TOKEN" \
+    http://169.254.169.254/latest/meta-data/placement/region)
+
+DB_PASS=$(aws secretsmanager get-secret-value \
+    --region "$REGION" \
+    --secret-id /lmc/db/credentials \
+    --query SecretString --output text \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])")
+
+install -m 640 -o root -g nginx /dev/null {{ web_root }}/config.php
+cat > {{ web_root }}/config.php << PHP
+<?php
+define('DB_HOST', '{{ db_host }}');
+define('DB_NAME', '{{ db_name }}');
+define('DB_USER', '{{ db_user }}');
+define('DB_PASS', '\$DB_PASS');
+PHP
+
+echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') config.php refreshed from Secrets Manager" >> /var/log/fetch-app-config.log

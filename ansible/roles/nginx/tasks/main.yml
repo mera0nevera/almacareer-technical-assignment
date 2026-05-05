@@ -1,0 +1,75 @@
+---
+# Nginx + PHP-FPM role
+
+- name: Install Nginx and PHP packages
+  ansible.builtin.dnf:
+    name:
+      - nginx
+      - php-fpm
+      - php-mysqlnd
+      - php-json
+    state: present
+  tags: packages
+
+- name: Open HTTP port in firewall
+  ansible.posix.firewalld:
+    port: 80/tcp
+    permanent: true
+    state: enabled
+    immediate: true
+  tags: firewall
+
+- name: Configure PHP-FPM pool to run as nginx user
+  ansible.builtin.lineinfile:
+    path: /etc/php-fpm.d/www.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - { regexp: '^user = ',          line: 'user = {{ php_fpm_pool_user }}' }
+    - { regexp: '^group = ',         line: 'group = {{ php_fpm_pool_group }}' }
+    - { regexp: '^listen = ',        line: 'listen = {{ php_fpm_socket }}' }
+    - { regexp: '^;?listen.owner =', line: 'listen.owner = {{ php_fpm_pool_user }}' }
+    - { regexp: '^;?listen.group =', line: 'listen.group = {{ php_fpm_pool_group }}' }
+    - { regexp: '^listen.acl_users', line: ';listen.acl_users =' }
+  notify: Reload php-fpm
+  tags: config
+
+- name: Remove default nginx config shipped by the package
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/default.conf
+    state: absent
+  tags: config
+
+- name: Deploy nginx server block from template
+  ansible.builtin.template:
+    src: app.conf.j2
+    dest: /etc/nginx/conf.d/app.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: nginx -t -c /etc/nginx/nginx.conf
+  notify: Reload nginx
+  tags: config, nginx_config
+
+- name: Ensure web root exists with correct ownership
+  ansible.builtin.file:
+    path: "{{ web_root }}"
+    state: directory
+    owner: nginx
+    group: nginx
+    mode: "0755"
+  tags: config
+
+- name: Enable and start PHP-FPM
+  ansible.builtin.service:
+    name: php-fpm
+    state: started
+    enabled: true
+  tags: service
+
+- name: Enable and start Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true
+  tags: service

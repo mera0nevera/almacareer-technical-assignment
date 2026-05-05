@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Node / CDK
+cdk/node_modules/
+cdk/cdk.out/
+cdk/dist/
+cdk/coverage/
+*.js.map
+
+# TypeScript build output
+*.d.ts
+*.js
+!jest.config.js
+!cdk/bin/*.js
+!cdk/lib/**/*.js
+!cdk/config/**/*.js
+

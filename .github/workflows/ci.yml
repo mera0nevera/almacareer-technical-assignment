@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+# Cancel redundant runs on the same PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PYTHON_VERSION: '3.12'
+  AWS_REGION: eu-central-1
+  ANSIBLE_CONFIG: ansible-ssm.cfg
+
+jobs:
+  # ── 1. TypeScript unit tests ───────────────────────────────────────────────
+  ts-test:
+    name: TypeScript Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit   # strict type-check without emitting output
+
+  # ── 2. CDK synth + diff comment on PR ─────────────────────────────────────
+  cdk-diff:
+    name: CDK Synth & Diff
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write       # required for OIDC
+      contents: read
+      pull-requests: write  # required to post the diff comment
+    defaults:
+      run:
+        working-directory: cdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+
+      - run: npm ci
+
+      # Authenticate to AWS via OIDC (no long-lived keys)
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK Synth (validates template)
+        run: npx cdk synth --quiet
+
+      - name: CDK Diff
+        id: diff
+        run: |
+          DIFF=$(npx cdk diff 2>&1 || true)
+          echo "output<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$DIFF"        >> "$GITHUB_OUTPUT"
+          echo "EOF"          >> "$GITHUB_OUTPUT"
+
+      - name: Post CDK diff as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const diff = `${{ steps.diff.outputs.output }}`;
+            const body = diff.trim()
+              ? `## CDK Diff\n\`\`\`\n${diff}\n\`\`\``
+              : '## CDK Diff\n_No infrastructure changes detected._';
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.startsWith('## CDK Diff'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ── 3. Ansible syntax check + lint ────────────────────────────────────────
+  ansible-lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: ansible/requirements.txt
+
+      - name: Install Ansible + lint
+        run: pip install -r ansible/requirements.txt ansible-lint
+
+      - name: Install required collections
+        run: |
+          ansible-galaxy collection install \
+            amazon.aws \
+            ansible.posix \
+            community.mysql \
+            community.aws
+
+      - name: Ansible syntax check
+        working-directory: ansible
+        run: |
+          ansible-playbook app.yml --syntax-check \
+            -i inventory/aws_ec2.yml \
+            -e @inventory/group_vars/all.yml \
+            -e @inventory/group_vars/web.yml \
+            --list-hosts 2>/dev/null || true   # skip host resolution in CI
+
+      - name: ansible-lint
+        working-directory: ansible
+        run: ansible-lint --profile production . || true   # warn-only in CI

@@ -1,0 +1,10 @@
+---
+- name: Reload nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded
+
+- name: Reload php-fpm
+  ansible.builtin.service:
+    name: php-fpm
+    state: reloaded

@@ -1,0 +1,12 @@
+---
+# Run only HAProxy tasks.
+# To update the load balancer config (e.g. add a third web server):
+#   1. Tag the new EC2 instance with Role=web03
+#   2. ansible-playbook haproxy.yml --tags config
+# Server IPs are resolved at run-time from the 'web' inventory group – no file edits needed.
+
+- name: HAProxy
+  hosts: tag_Role_haproxy
+  roles:
+    - common
+    - haproxy

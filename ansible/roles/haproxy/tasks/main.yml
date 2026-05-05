@@ -1,0 +1,37 @@
+---
+# HAProxy role – installs and configures the load balancer.
+
+- name: Install HAProxy
+  ansible.builtin.dnf:
+    name: haproxy
+    state: present
+  tags: packages
+
+- name: Open HTTP port in firewall
+  ansible.posix.firewalld:
+    port: "{{ item }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop:
+    - "80"
+    - "8404"   # HAProxy stats page
+  tags: firewall
+
+- name: Deploy haproxy.cfg from template
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    validate: haproxy -c -f %s
+  notify: Reload haproxy
+  tags: config
+
+- name: Enable and start HAProxy
+  ansible.builtin.service:
+    name: haproxy
+    state: started
+    enabled: true
+  tags: service

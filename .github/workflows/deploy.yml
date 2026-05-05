@@ -1,0 +1,308 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Never cancel a running deploy – finish it, then start the next.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION:     eu-central-1
+  NODE_VERSION:   '22'
+  PYTHON_VERSION: '3.12'
+
+# ── Job dependency graph ──────────────────────────────────────────────────────
+#
+#   changes ─┬─► test ─┬─► deploy-cdk ──────────────► run-ansible ─► smoke-test
+#             │         │                                    ▲
+#             │         └────────────────────────────────────┘
+#             │                (runs if ansible/ changed OR cdk deployed)
+#             └─────────────────────────────────────────────────────────────────
+
+jobs:
+  # ── 1. Detect what changed ─────────────────────────────────────────────────
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      cdk:     ${{ steps.filter.outputs.cdk }}
+      ansible: ${{ steps.filter.outputs.ansible }}
+      app:     ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            cdk:
+              - 'cdk/**'
+            ansible:
+              - 'ansible/**'
+            app:
+              - 'app/**'
+
+  # ── 2. TypeScript tests (always runs) ────────────────────────────────────
+  test:
+    name: TypeScript Tests
+    runs-on: ubuntu-latest
+    needs: changes
+    defaults:
+      run:
+        working-directory: cdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - run: npx tsc --noEmit
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: cdk/coverage/
+          retention-days: 7
+
+  # ── 3. Deploy CDK stacks ──────────────────────────────────────────────────
+  # Runs only when files under cdk/ changed.
+  deploy-cdk:
+    name: Deploy Infrastructure (CDK)
+    runs-on: ubuntu-latest
+    needs: [test, changes]
+    if: needs.changes.outputs.cdk == 'true'
+    environment: production       # GitHub Environment gate – manual approval if configured
+    permissions:
+      id-token: write             # required for OIDC token
+      contents: read
+    defaults:
+      run:
+        working-directory: cdk
+    outputs:
+      haproxy_ip: ${{ steps.outputs.outputs.haproxy_ip }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: cdk/package-lock.json
+
+      - run: npm ci
+
+      - name: Configure AWS credentials (OIDC – no long-lived keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-deploy-${{ github.run_id }}
+
+      - name: CDK Bootstrap (idempotent – safe to run every time)
+        run: npx cdk bootstrap --ci
+
+      - name: CDK Deploy – all stacks
+        id: cdk_deploy
+        run: |
+          npx cdk deploy \
+            --all \
+            --concurrency 4 \
+            --require-approval never \
+            --ci \
+            --outputs-file cdk-outputs.json
+          cat cdk-outputs.json
+
+      - name: Parse HAProxy public IP from CDK outputs
+        id: outputs
+        run: |
+          IP=$(jq -r '.LmcServers.HaproxyPublicIp // empty' cdk-outputs.json)
+          echo "haproxy_ip=${IP}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload CDK outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: cdk-outputs
+          path: cdk/cdk-outputs.json
+          retention-days: 1
+
+  # ── 4. Configure servers with Ansible ────────────────────────────────────
+  # Runs when:
+  #   a) CDK was just deployed (infrastructure changed), OR
+  #   b) ansible/ or app/ changed (config/code changed, no infra change needed)
+  run-ansible:
+    name: Configure Servers (Ansible)
+    runs-on: ubuntu-latest
+    needs: [test, changes, deploy-cdk]
+    if: |
+      always() &&
+      needs.test.result == 'success' &&
+      needs.deploy-cdk.result != 'failure' &&
+      (
+        needs.deploy-cdk.result == 'success' ||
+        needs.changes.outputs.ansible == 'true' ||
+        needs.changes.outputs.app == 'true'
+      )
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      ANSIBLE_HOST_KEY_CHECKING: 'false'
+      ANSIBLE_SSH_RETRIES: '5'
+    defaults:
+      run:
+        working-directory: ansible
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: ansible/requirements.txt
+
+      - name: Install Python dependencies
+        run: pip install ansible boto3 botocore
+
+      - name: Install Ansible collections
+        run: |
+          ansible-galaxy collection install \
+            amazon.aws \
+            ansible.posix \
+            community.mysql \
+            community.aws \
+            --force
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-ansible-${{ github.run_id }}
+
+      # Write secrets to temp files (cleaned up in post-step)
+      - name: Write SSH private key
+        run: |
+          install -m 600 /dev/null lmc-key.pem
+          echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > lmc-key.pem
+
+      - name: Write Ansible Vault password
+        run: |
+          install -m 600 /dev/null .vault_pass
+          echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass
+
+      - name: Wait for instances to be ready (SSH)
+        run: |
+          # Give newly-launched instances time to boot and start sshd
+          sleep 30
+          ansible all -m ping \
+            --private-key lmc-key.pem \
+            --timeout 60 \
+            -o 2>&1 | tail -5
+
+      - name: Run Ansible – full provision
+        env:
+          ANSIBLE_VAULT_PASSWORD_FILE: .vault_pass
+        run: |
+          ansible-playbook app.yml \
+            --private-key lmc-key.pem \
+            --diff \
+            -v
+
+      - name: Cleanup secrets
+        if: always()
+        run: rm -f lmc-key.pem .vault_pass
+
+  # ── 5. Smoke test – verify the app works end-to-end ──────────────────────
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: [run-ansible, deploy-cdk]
+    if: |
+      always() &&
+      needs.run-ansible.result == 'success'
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get HAProxy public IP
+        id: haproxy
+        run: |
+          IP=$(aws ec2 describe-instances \
+            --filters \
+              "Name=tag:Role,Values=haproxy" \
+              "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+          echo "ip=${IP}" >> "$GITHUB_OUTPUT"
+          echo "HAProxy IP: ${IP}"
+
+      - name: Test – main page returns HTTP 200
+        run: |
+          CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
+            --retry 5 --retry-delay 5 --retry-connrefused \
+            http://${{ steps.haproxy.outputs.ip }}/)
+          [ "$CODE" = "200" ] || { echo "Expected 200, got $CODE"; exit 1; }
+          echo "Main page OK (HTTP $CODE)"
+
+      - name: Test – health endpoint returns JSON status ok
+        run: |
+          RESPONSE=$(curl -sf \
+            --retry 5 --retry-delay 5 \
+            http://${{ steps.haproxy.outputs.ip }}/health)
+          echo "$RESPONSE" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          assert d.get('status') == 'ok', f'Health check failed: {d}'
+          print('Health OK:', d)
+          "
+
+      - name: Test – load balancing (both web01 and web02 respond)
+        run: |
+          python3 - <<'PY'
+          import urllib.request, json, time
+
+          haproxy = "${{ steps.haproxy.outputs.ip }}"
+          hostnames = set()
+          for _ in range(8):
+              try:
+                  r = urllib.request.urlopen(f"http://{haproxy}/health", timeout=5)
+                  d = json.loads(r.read())
+                  if h := d.get('checks', {}).get('hostname'):
+                      hostnames.add(h)
+              except Exception as e:
+                  print("Request failed:", e)
+              time.sleep(0.5)
+
+          print(f"Servers responding: {hostnames}")
+          assert len(hostnames) >= 2, \
+              f"Expected both web01 and web02 to respond, got: {hostnames}"
+          print("Load balancing OK – both servers active")
+          PY
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Smoke Test Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "- App URL: http://${{ steps.haproxy.outputs.ip }}/" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Health: http://${{ steps.haproxy.outputs.ip }}/health" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Stats:  http://${{ steps.haproxy.outputs.ip }}:8404/stats" >> "$GITHUB_STEP_SUMMARY"

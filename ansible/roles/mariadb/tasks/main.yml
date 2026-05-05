@@ -1,0 +1,130 @@
+---
+# MariaDB role
+
+- name: Install MariaDB server and Python MySQL library
+  ansible.builtin.dnf:
+    name:
+      - mariadb105-server
+      - mariadb105
+      - python3-PyMySQL    # required by community.mysql modules
+    state: present
+  tags: packages
+
+- name: Enable and start MariaDB
+  ansible.builtin.service:
+    name: mariadb
+    state: started
+    enabled: true
+  tags: service
+
+- name: Set MariaDB root password
+  community.mysql.mysql_user:
+    name: root
+    host: localhost
+    password: "{{ db_root_pass }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
+    state: present
+  no_log: true
+  tags: security
+
+- name: Remove anonymous MariaDB users
+  community.mysql.mysql_user:
+    name: ''
+    host_all: true
+    login_user: root
+    login_password: "{{ db_root_pass }}"
+    state: absent
+  no_log: true
+  tags: security
+
+- name: Remove remote root login
+  community.mysql.mysql_user:
+    name: root
+    host: "{{ item }}"
+    login_user: root
+    login_password: "{{ db_root_pass }}"
+    state: absent
+  loop:
+    - "{{ ansible_hostname }}"
+    - "127.0.0.1"
+    - "::1"
+  no_log: true
+  tags: security
+
+- name: Remove test database
+  community.mysql.mysql_db:
+    name: test
+    login_user: root
+    login_password: "{{ db_root_pass }}"
+    state: absent
+  no_log: true
+  tags: security
+
+- name: Create application database
+  community.mysql.mysql_db:
+    name: "{{ db_name }}"
+    encoding: utf8mb4
+    collation: utf8mb4_unicode_ci
+    login_user: root
+    login_password: "{{ db_root_pass }}"
+    state: present
+  tags: schema
+
+- name: Create application user – allowed only from web server IPs
+  community.mysql.mysql_user:
+    name: "{{ db_user }}"
+    host: "{{ item }}"
+    password: "{{ db_pass }}"
+    priv: "{{ db_name }}.*:ALL"
+    login_user: root
+    login_password: "{{ db_root_pass }}"
+    state: present
+  loop: "{{ groups['web'] | map('extract', hostvars, 'private_ip') | list }}"
+  no_log: true
+  tags: schema
+
+- name: Create application schema
+  community.mysql.mysql_query:
+    login_user: root
+    login_password: "{{ db_root_pass }}"
+    login_db: "{{ db_name }}"
+    query:
+      - |
+        CREATE TABLE IF NOT EXISTS users (
+          id         INT AUTO_INCREMENT PRIMARY KEY,
+          username   VARCHAR(100) NOT NULL,
+          email      VARCHAR(200) NOT NULL UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      - |
+        CREATE TABLE IF NOT EXISTS visits (
+          id               INT AUTO_INCREMENT PRIMARY KEY,
+          server_hostname  VARCHAR(200) NOT NULL,
+          visited_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_server (server_hostname),
+          INDEX idx_time   (visited_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      - |
+        INSERT IGNORE INTO users (username, email)
+        VALUES ('admin', 'admin@example.com'), ('testuser', 'test@example.com')
+  no_log: true
+  tags: schema
+
+- name: Deploy MariaDB server config
+  ansible.builtin.template:
+    src: 50-server.cnf.j2
+    dest: /etc/my.cnf.d/50-server.cnf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mariadb
+  tags: config
+
+- name: Open MySQL port only from web server IPs
+  ansible.posix.firewalld:
+    rich_rule: "rule family='ipv4' source address='{{ item }}/32' port port='3306' protocol='tcp' accept"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop: "{{ groups['web'] | map('extract', hostvars, 'private_ip') | list }}"
+  tags: firewall
