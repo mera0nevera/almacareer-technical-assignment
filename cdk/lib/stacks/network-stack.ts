@@ -26,7 +26,7 @@ export class NetworkStack extends cdk.Stack {
           name: 'Public',
           subnetType: ec2.SubnetType.PUBLIC,
           cidrMask: 24,
-          mapPublicIpOnLaunch: true,
+          mapPublicIpOnLaunch: false,
         },
       ],
     });
@@ -64,6 +64,38 @@ export class NetworkStack extends cdk.Stack {
     });
     this.dbSg.addIngressRule(this.webSg,          ec2.Port.tcp(PORTS.mysql), 'MySQL from web servers');
     this.dbSg.addIngressRule(ec2.Peer.anyIpv4(),  ec2.Port.tcp(PORTS.ssh),   'SSH admin');
+
+    // ── VPC Endpoints ─────────────────────────────────────────────────────────
+    // Instances have no public IPs and no NAT gateway, so they reach AWS APIs
+    // via interface endpoints (traffic stays inside AWS network).
+    const endpointSg = new ec2.SecurityGroup(this, 'EndpointSg', {
+      vpc: this.vpc,
+      securityGroupName: 'lmc-endpoint-sg',
+      description: 'VPC endpoints - HTTPS from VPC',
+      allowAllOutbound: false,
+    });
+    endpointSg.addIngressRule(ec2.Peer.ipv4(VPC_CIDR), ec2.Port.tcp(443), 'HTTPS from VPC');
+
+    // S3 gateway endpoint – free, needed for SSM agent and CDK assets.
+    this.vpc.addGatewayEndpoint('S3Endpoint', {
+      service: ec2.GatewayVpcEndpointAwsService.S3,
+    });
+
+    // Interface endpoints – each resolves to a private IP inside the VPC.
+    for (const [id, service] of [
+      ['SsmEndpoint',            ec2.InterfaceVpcEndpointAwsService.SSM],
+      ['SsmMessagesEndpoint',    ec2.InterfaceVpcEndpointAwsService.SSM_MESSAGES],
+      ['Ec2MessagesEndpoint',    ec2.InterfaceVpcEndpointAwsService.EC2_MESSAGES],
+      ['CloudFormationEndpoint', ec2.InterfaceVpcEndpointAwsService.CLOUDFORMATION],
+      ['CloudWatchLogsEndpoint', ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS],
+    ] as const) {
+      new ec2.InterfaceVpcEndpoint(this, id, {
+        vpc:              this.vpc,
+        service,
+        securityGroups:   [endpointSg],
+        privateDnsEnabled: true,
+      });
+    }
 
     // ── Outputs ──────────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'VpcId', { value: this.vpc.vpcId });

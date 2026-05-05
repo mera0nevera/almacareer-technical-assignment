@@ -111,7 +111,6 @@ export class ServersStack extends cdk.Stack {
       keyPair,
       role:             haproxyRole,
       privateIpAddress: IPS.haproxy,
-      associatePublicIpAddress: true,
       requireImdsv2:    true,
       blockDevices:     [encryptedRoot()],
       init:             this.buildInstanceInit(LOGICAL.haproxy, CW_CONFIGS.haproxy),
@@ -130,7 +129,6 @@ export class ServersStack extends cdk.Stack {
       keyPair,
       role:             webRole,
       privateIpAddress: IPS.web01,
-      associatePublicIpAddress: true,
       requireImdsv2:    true,
       blockDevices:     [encryptedRoot()],
       init:             this.buildInstanceInit(LOGICAL.web01, CW_CONFIGS.web),
@@ -149,7 +147,6 @@ export class ServersStack extends cdk.Stack {
       keyPair,
       role:             webRole,
       privateIpAddress: IPS.web02,
-      associatePublicIpAddress: true,
       requireImdsv2:    true,
       blockDevices:     [encryptedRoot()],
       init:             this.buildInstanceInit(LOGICAL.web02, CW_CONFIGS.web),
@@ -168,7 +165,6 @@ export class ServersStack extends cdk.Stack {
       keyPair,
       role:             dbRole,
       privateIpAddress: IPS.db,
-      associatePublicIpAddress: true,
       requireImdsv2:    true,
       blockDevices:     [encryptedRoot(20)],
       init:             this.buildInstanceInit(LOGICAL.db, CW_CONFIGS.db),
@@ -190,11 +186,15 @@ export class ServersStack extends cdk.Stack {
       value: `aws ssm start-session --target ${web01.instanceId}`,
       description: 'SSH-less shell into Web01 via SSM Session Manager',
     });
-    new cdk.CfnOutput(this, 'HaproxyPublicIp', { value: haproxy.instancePublicIp });
-    new cdk.CfnOutput(this, 'Web01PublicIp',   { value: web01.instancePublicIp });
-    new cdk.CfnOutput(this, 'Web02PublicIp',   { value: web02.instancePublicIp });
-    new cdk.CfnOutput(this, 'DbPublicIp',      { value: db.instancePublicIp });
-    new cdk.CfnOutput(this, 'AppUrl',          { value: `http://${haproxy.instancePublicIp}/` });
+    new cdk.CfnOutput(this, 'HaproxyPrivateIp', { value: haproxy.instancePrivateIp });
+    new cdk.CfnOutput(this, 'Web01PrivateIp',   { value: web01.instancePrivateIp });
+    new cdk.CfnOutput(this, 'Web02PrivateIp',   { value: web02.instancePrivateIp });
+    new cdk.CfnOutput(this, 'DbPrivateIp',      { value: db.instancePrivateIp });
+    new cdk.CfnOutput(this, 'AppUrl',           { value: `http://${haproxy.instancePrivateIp}/` });
+    new cdk.CfnOutput(this, 'SsmTunnelHaproxy', {
+      value: `aws ssm start-session --target ${haproxy.instanceId} --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["80"],"localPortNumber":["8080"]}' --region ${this.region}`,
+      description: 'Tunnel HAProxy port 80 to localhost:8080 via SSM',
+    });
     new cdk.CfnOutput(this, 'SshKeyCommand', {
       value: `aws ssm get-parameter --name /ec2/keypair/${keyPair.keyPairId} --with-decryption --query Parameter.Value --output text > lmc-key.pem && chmod 600 lmc-key.pem`,
     });
