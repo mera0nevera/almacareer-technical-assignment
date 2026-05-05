@@ -36,7 +36,7 @@ export class NetworkStack extends cdk.Stack {
     this.haproxySg = new ec2.SecurityGroup(this, 'HaproxySg', {
       vpc: this.vpc,
       securityGroupName: 'lmc-haproxy-sg',
-      description: 'HAProxy – public entry point',
+      description: 'HAProxy - public entry point',
       allowAllOutbound: true,
     });
     this.haproxySg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(PORTS.http),         'HTTP from internet');
@@ -48,7 +48,7 @@ export class NetworkStack extends cdk.Stack {
     this.webSg = new ec2.SecurityGroup(this, 'WebSg', {
       vpc: this.vpc,
       securityGroupName: 'lmc-web-sg',
-      description: 'Web servers – HTTP only from HAProxy',
+      description: 'Web servers - HTTP only from HAProxy',
       allowAllOutbound: true,
     });
     this.webSg.addIngressRule(this.haproxySg,    ec2.Port.tcp(PORTS.http), 'HTTP from HAProxy');
@@ -59,7 +59,7 @@ export class NetworkStack extends cdk.Stack {
     this.dbSg = new ec2.SecurityGroup(this, 'DbSg', {
       vpc: this.vpc,
       securityGroupName: 'lmc-db-sg',
-      description: 'Database – MySQL only from web servers',
+      description: 'Database - MySQL only from web servers',
       allowAllOutbound: true,
     });
     this.dbSg.addIngressRule(this.webSg,          ec2.Port.tcp(PORTS.mysql), 'MySQL from web servers');
