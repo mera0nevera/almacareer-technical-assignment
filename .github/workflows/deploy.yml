@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 # Never cancel a running deploy – finish it, then start the next.
 concurrency:

@@ -2,7 +2,7 @@ name: "PR Checks: Tests, CDK Diff & Ansible Lint"
 
 on:
   pull_request:
-    branches: [main]
+    branches: [master]
 
 # Cancel redundant runs on the same PR
 concurrency:
