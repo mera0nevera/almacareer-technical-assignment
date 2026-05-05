@@ -14,6 +14,10 @@ env:
   NODE_VERSION:   '22'
   PYTHON_VERSION: '3.12'
 
+  # GITHUB_ORG: ${{ github.repository_owner }}
+  # GITHUB_REPO: ${{ github.event.repository.name }}
+  # GITHUB_BRANCH: ${{ github.ref_name }}
+
 # ── Job dependency graph ──────────────────────────────────────────────────────
 #
 #   changes ─┬─► test ─┬─► deploy-cdk ──────────────► run-ansible ─► smoke-test

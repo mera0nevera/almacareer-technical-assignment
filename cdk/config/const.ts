@@ -57,15 +57,15 @@ export const LOG_GROUP_NAMES = {
   db:      '/lmc/db',
 } as const;
 
-export const LOG_RETENTION = logs.RetentionDays.ONE_MONTH;
+export const LOG_RETENTION = logs.RetentionDays.FIVE_DAYS;
 
 // ── GitHub OIDC ───────────────────────────────────────────────────────────
 export const GITHUB_OIDC = {
   // GitHub's OIDC thumbprint – update if GitHub rotates their cert.
   thumbprint:  '6938fd4d98bab03faadb97b34396831e3780aea1',
-  defaultRef:  'refs/heads/main',
-  defaultOrg:  'YOUR_ORG',
-  defaultRepo: 'YOUR_REPO',
+  defaultRef:  'refs/heads/master',
+  defaultOrg:  'mera0nevera',
+  defaultRepo: 'almacareer-technical-assignmen',
 } as const;
 
 // ── Database ──────────────────────────────────────────────────────────────

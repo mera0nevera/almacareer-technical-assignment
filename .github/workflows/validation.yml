@@ -1,4 +1,4 @@
-name: CI
+name: "PR Checks: Tests, CDK Diff & Ansible Lint"
 
 on:
   pull_request:

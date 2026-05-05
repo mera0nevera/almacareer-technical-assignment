@@ -34,7 +34,7 @@ export class GithubOidcStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: GithubOidcStackProps) {
     super(scope, id, props);
 
-    const allowedRef = props.allowedRef ?? GITHUB_OIDC.defaultRef;
+    const allowedRef = props.allowedRef ?? process.env.GITHUB_BRANCH ?? GITHUB_OIDC.defaultRef;
 
     // ── OIDC Provider ─────────────────────────────────────────────────────────
     // GitHub publishes its OIDC config at this URL.
