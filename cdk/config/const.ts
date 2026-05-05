@@ -63,7 +63,7 @@ export const LOG_RETENTION = logs.RetentionDays.FIVE_DAYS;
 export const GITHUB_OIDC = {
   // GitHub's OIDC thumbprint – update if GitHub rotates their cert.
   thumbprint:  '6938fd4d98bab03faadb97b34396831e3780aea1',
-  defaultRef:  'refs/heads/master',
+  defaultRef:  '*',
   defaultOrg:  'mera0nevera',
   defaultRepo: 'almacareer-technical-assignment',
 } as const;

@@ -76,17 +76,17 @@ export class GithubOidcStack extends cdk.Stack {
     this.deployRole.addToPolicy(new iam.PolicyStatement({
       sid: 'CdkDeploy',
       actions: [
-        'cloudformation:*',
-        'ec2:*',
-        'iam:*',
-        'ssm:*',
-        'secretsmanager:*',
-        'logs:*',
-        's3:*',
-        'kms:*',
-        'sts:AssumeRole',
-        'sts:GetCallerIdentity',
-        'sts:TagSession',
+        // 'cloudformation:*',
+        // 'ec2:*',
+        // 'iam:*',
+        // 'ssm:*',
+        // 'secretsmanager:*',
+        // 'logs:*',
+        // 's3:*',
+        // 'kms:*',
+        'sts:AssumeRole'
+        // 'sts:GetCallerIdentity',
+        // 'sts:TagSession',
       ],
       resources: ['*'],
     }));
