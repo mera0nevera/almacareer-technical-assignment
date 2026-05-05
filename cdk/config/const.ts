@@ -65,7 +65,7 @@ export const GITHUB_OIDC = {
   thumbprint:  '6938fd4d98bab03faadb97b34396831e3780aea1',
   defaultRef:  'refs/heads/master',
   defaultOrg:  'mera0nevera',
-  defaultRepo: 'almacareer-technical-assignmen',
+  defaultRepo: 'almacareer-technical-assignment',
 } as const;
 
 // ── Database ──────────────────────────────────────────────────────────────
