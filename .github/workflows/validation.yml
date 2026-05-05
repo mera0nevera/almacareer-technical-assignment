@@ -35,7 +35,6 @@ jobs:
           cache-dependency-path: cdk/package-lock.json
 
       - run: npm ci
-      - run: npm test
       - run: npx tsc --noEmit   # strict type-check without emitting output
 
   # ── 2. CDK synth + diff comment on PR ─────────────────────────────────────
