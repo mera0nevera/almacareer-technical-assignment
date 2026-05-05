@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_REGION:     eu-central-1
-  NODE_VERSION:   '22'
+  AWS_REGION: eu-central-1
+  NODE_VERSION: 22
   PYTHON_VERSION: '3.12'
 
   # GITHUB_ORG: ${{ github.repository_owner }}
@@ -111,9 +111,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: github-deploy-${{ github.run_id }}
-
-      - name: CDK Bootstrap (idempotent – safe to run every time)
-        run: npx cdk bootstrap --ci
 
       - name: CDK Deploy – all stacks
         id: cdk_deploy
