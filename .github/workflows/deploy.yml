@@ -176,7 +176,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: ansible/requirements.txt
 
       - name: Install Python dependencies
         run: pip install ansible boto3 botocore
