@@ -154,7 +154,7 @@ jobs:
       always() &&
       needs.test.result == 'success' &&
       (
-        needs.deploy-cdk.result == 'success' ||
+        github.event_name == 'workflow_dispatch'
         needs.changes.outputs.ansible == 'true' ||
         needs.changes.outputs.app == 'true'
       )
