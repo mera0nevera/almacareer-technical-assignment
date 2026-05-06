@@ -173,14 +173,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: ansible/requirements.txt
+          cache-dependency-path: requirements.txt
 
       - name: Install Python dependencies
         run: pip install ansible boto3 botocore
 
       - name: Install Ansible collections
         run: |
-          ansible-galaxy collection install -r ansible/collection-requirements.yml  --force
+          ansible-galaxy collection install -r collection-requirements.yml  --force
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
