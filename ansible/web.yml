@@ -1,10 +1,4 @@
 ---
-# Run only web server tasks.
-# Examples:
-#   ansible-playbook web.yml                    # full web provision
-#   ansible-playbook web.yml --tags nginx_config  # update only nginx.conf
-#   ansible-playbook web.yml --tags app_config    # redeploy config.php (picks up rotated password)
-#   ansible-playbook web.yml --tags app_code      # redeploy PHP files only
 
 - name: Web servers
   hosts: web

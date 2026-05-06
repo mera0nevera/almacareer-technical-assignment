@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import { IPS, DB, SSM_PATHS, SECRET_NAMES, LOG_GROUP_NAMES, LOG_RETENTION } from '../../config/const';
 
@@ -26,6 +27,7 @@ export class ConfigStack extends cdk.Stack {
   public readonly haproxyLogs: logs.LogGroup;
   public readonly webLogs: logs.LogGroup;
   public readonly dbLogs: logs.LogGroup;
+  public readonly ansibleSsmBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -86,7 +88,29 @@ export class ConfigStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    // ── Ansible SSM bucket ────────────────────────────────────────────────────
+    // Used by the community.aws.aws_ssm Ansible connection plugin to transfer
+    // modules to instances. Instance roles get grantReadWrite in ServersStack.
+    this.ansibleSsmBucket = new s3.Bucket(this, 'AnsibleSsmBucket', {
+      bucketName:        `lmc-ansible-ssm-${this.account}`,
+      removalPolicy:     cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption:        s3.BucketEncryption.S3_MANAGED,
+    });
+
+    // Store bucket name in SSM so Ansible can discover it at runtime via lookup.
+    new ssm.StringParameter(this, 'AnsibleSsmBucketParam', {
+      parameterName: SSM_PATHS.ansibleSsmBucket,
+      stringValue:   this.ansibleSsmBucket.bucketName,
+      description:   'S3 bucket for Ansible SSM connection plugin',
+    });
+
     // ── Outputs ───────────────────────────────────────────────────────────────
+    new cdk.CfnOutput(this, 'AnsibleSsmBucketName', {
+      value:       this.ansibleSsmBucket.bucketName,
+      description: 'S3 bucket for Ansible SSM file transfers',
+    });
     new cdk.CfnOutput(this, 'DbSecretArn', {
       value: this.dbSecret.secretArn,
       description: 'Rotate DB password: aws secretsmanager rotate-secret --secret-id <ARN>',

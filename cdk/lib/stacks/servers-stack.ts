@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -17,9 +18,10 @@ export interface ServersStackProps extends cdk.StackProps {
   dbHostParam: ssm.IStringParameter;
   dbNameParam: ssm.IStringParameter;
   dbUserParam: ssm.IStringParameter;
-  haproxyLogs: logs.ILogGroup;
-  webLogs:     logs.ILogGroup;
-  dbLogs:      logs.ILogGroup;
+  haproxyLogs:      logs.ILogGroup;
+  webLogs:          logs.ILogGroup;
+  dbLogs:           logs.ILogGroup;
+  ansibleSsmBucket: s3.IBucket;
 }
 
 // Fixed logical IDs so cfn-hup can reference them without a chicken-and-egg problem.
@@ -100,6 +102,11 @@ export class ServersStack extends cdk.Stack {
     props.dbUserParam.grantRead(webRole);
     props.dbSecret.grantRead(webRole);
     props.dbSecret.grantRead(dbRole);
+
+    // Ansible SSM connection plugin uses this bucket to transfer modules to instances.
+    props.ansibleSsmBucket.grantReadWrite(haproxyRole);
+    props.ansibleSsmBucket.grantReadWrite(webRole);
+    props.ansibleSsmBucket.grantReadWrite(dbRole);
 
     // ── VM1 – HAProxy ─────────────────────────────────────────────────────────
     const haproxy = new ec2.Instance(this, 'HAProxy', {

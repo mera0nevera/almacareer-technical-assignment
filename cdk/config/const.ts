@@ -40,9 +40,10 @@ export const TIMEOUTS = {
 
 // ── SSM Parameter paths ───────────────────────────────────────────────────
 export const SSM_PATHS = {
-  dbHost: '/lmc/db/host',
-  dbName: '/lmc/db/name',
-  dbUser: '/lmc/db/user',
+  dbHost:          '/lmc/db/host',
+  dbName:          '/lmc/db/name',
+  dbUser:          '/lmc/db/user',
+  ansibleSsmBucket: '/lmc/ansible/ssm-bucket',
 } as const;
 
 // ── Secrets Manager names ─────────────────────────────────────────────────

@@ -180,12 +180,7 @@ jobs:
 
       - name: Install Ansible collections
         run: |
-          ansible-galaxy collection install \
-            amazon.aws \
-            ansible.posix \
-            community.mysql \
-            community.aws \
-            --force
+          ansible-galaxy collection install -r ansible/collection-requirements.yml  --force
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

@@ -2,24 +2,28 @@
 
 - name: Common baseline on all hosts
   hosts: all
+  gather_facts: false
   roles:
     - common
 
 - name: HAProxy load balancer
-  hosts: tag_Role_haproxy
+  hosts: role_haproxy
+  gather_facts: false
   roles:
     - haproxy
 
 - name: Web servers (Nginx + PHP-FPM + app)
   hosts: web
+  gather_facts: false
   roles:
     - nginx
     - php_app
 
 - name: Database server
-  hosts: tag_Role_db
+  hosts: role_db
+  gather_facts: false
   vars_files:
-    - inventory/group_vars/web.yml    # db_name, db_user, db_pass
+    - inventory/group_vars/web.yml
   vars:
     db_root_pass: "{{ db_pass }}_root"
   roles:

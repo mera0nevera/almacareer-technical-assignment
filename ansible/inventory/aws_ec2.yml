@@ -1,39 +1,36 @@
-# AWS EC2 dynamic inventory
-# Requires: pip install boto3 botocore  +  collection: amazon.aws
-#
-# Groups created by CDK Role tags:
-#   tag_Role_haproxy  → HAProxy instance
-#   tag_Role_web01    → Web01 instance
-#   tag_Role_web02    → Web02 instance
-#   tag_Role_db       → DB instance
-#
-# Usage:
-#   ansible-inventory --list          # see all hosts
-#   ansible-inventory --graph         # tree view
-plugin: amazon.aws.aws_ec2
+---
 
+plugin: amazon.aws.aws_ec2
 regions:
-  - eu-central-1          # change to match your region
+  - eu-central-1
 
 filters:
   instance-state-name: running
   tag:Project: lmc
 
-# SSH mode: use public IP.  SSM mode: use instance-id (SSM identifies targets by ID).
-# Switch by commenting/uncommenting the line below.
-hostnames:
-  - instance-id              # SSM transport (no port 22 needed)
 
-# Create groups from the 'Role' tag
+hostnames:
+  - instance-id
+
 keyed_groups:
+  - key: tags.Environment
+    prefix: env
+  - key: tags.Name
+    prefix: name
   - key: tags.Role
-    prefix: tag_Role
+    prefix: role
     separator: _
 
-# Convenience group: all web servers together
 groups:
   web: "tags.Role is defined and tags.Role in ['web01', 'web02']"
 
 compose:
-  # Make private IP available as a var for use in templates
   private_ip: private_ip_address
+  ansible_host: instance_id
+  ansible_connection: "'amazon.aws.aws_ssm'"
+  ansible_aws_ssm_region: eu-central-1
+  ansible_aws_ssm_bucket_name: "{{ lookup('amazon.aws.aws_ssm', '/lmc/ansible/ssm-bucket', region='eu-central-1') }}"
+  ansible_aws_ssm_s3_addressing_style: "'virtual'"
+  ansible_become: true
+  ansible_become_method: sudo
+  ansible_user: ssm-user
