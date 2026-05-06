@@ -154,8 +154,8 @@ jobs:
       always() &&
       needs.test.result == 'success' &&
       (
-        github.event_name == 'workflow_dispatch'
-        needs.changes.outputs.ansible == 'true' ||
+        github.event_name == 'workflow_dispatch' ||
+        needs.changes.outputs.ansible == 'true'  ||
         needs.changes.outputs.app == 'true'
       )
     environment: production
