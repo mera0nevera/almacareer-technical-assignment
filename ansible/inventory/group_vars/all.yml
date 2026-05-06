@@ -1,27 +1,8 @@
 ---
-# Variables shared across ALL hosts
-# Non-sensitive values only – no passwords here.
 
-admin_user: sysadmin
-
-# IPs resolved at run-time from the EC2 dynamic inventory.
-# The aws_ec2 plugin composes 'private_ip' from the AWS API for every discovered instance.
-# Adding a new web server only requires tagging it Role=web01/web02/web03 – no file edits needed.
-haproxy_ip: "{{ hostvars[groups['tag_Role_haproxy'][0]]['private_ip'] }}"
-db_ip:      "{{ hostvars[groups['tag_Role_db'][0]]['private_ip'] }}"
-
-# Firewall
-firewall_service: firewalld
-
-# NTP / chrony
-ntp_pool: "pool.ntp.org iburst"
-
-# SSH hardening
-sshd_config:
-  PermitRootLogin: "no"
-  PasswordAuthentication: "no"
-  PubkeyAuthentication: "yes"
-  X11Forwarding: "no"
-  MaxAuthTries: "3"
-
-# admin_ssh_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGBM5IqK466KmvCek+S1Fec3xWfmHjXlJPAvSlBqJwgH lmceu\krymtsovr@CZ-PC1RH54Y"
+ansible_connection: community.aws.aws_ssm
+ansible_aws_ssm_bucket_name: ""          # leave empty – SSM uses its own temp storage
+ansible_aws_ssm_region: eu-central-1     # must match your AWS region
+ansible_become: true
+ansible_become_method: sudo
+ansible_user: ssm-user     
