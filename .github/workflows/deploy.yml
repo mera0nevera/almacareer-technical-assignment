@@ -13,6 +13,8 @@ env:
   AWS_REGION: eu-central-1
   NODE_VERSION: 22
   PYTHON_VERSION: '3.12'
+  ANSIBLE_CONFIG: ansible-ssm.cfg
+
 
   # GITHUB_ORG: ${{ github.repository_owner }}
   # GITHUB_REPO: ${{ github.event.repository.name }}
@@ -193,31 +195,30 @@ jobs:
           role-session-name: github-ansible-${{ github.run_id }}
 
       # Write secrets to temp files (cleaned up in post-step)
-      - name: Write SSH private key
-        run: |
-          install -m 600 /dev/null lmc-key.pem
-          echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > lmc-key.pem
+      # - name: Write SSH private key
+      #   run: |
+      #     install -m 600 /dev/null lmc-key.pem
+      #     echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > lmc-key.pem
 
       - name: Write Ansible Vault password
         run: |
           install -m 600 /dev/null .vault_pass
           echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass
 
-      - name: Wait for instances to be ready (SSH)
-        run: |
-          # Give newly-launched instances time to boot and start sshd
-          sleep 30
-          ansible all -m ping \
-            --private-key lmc-key.pem \
-            --timeout 60 \
-            -o 2>&1 | tail -5
+      # - name: Wait for instances to be ready (SSH)
+      #   run: |
+      #     # Give newly-launched instances time to boot and start sshd
+      #     sleep 30
+      #     ansible all -m ping \
+      #       --private-key lmc-key.pem \
+      #       --timeout 60 \
+      #       -o 2>&1 | tail -5
 
       - name: Run Ansible – full provision
         env:
           ANSIBLE_VAULT_PASSWORD_FILE: .vault_pass
         run: |
-          ansible-playbook app.yml \
-            --private-key lmc-key.pem \
+          ansible-playbook main.yml \
             --diff \
             -v
 

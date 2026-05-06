@@ -135,7 +135,7 @@ jobs:
       - name: Ansible syntax check
         working-directory: ansible
         run: |
-          ansible-playbook app.yml --syntax-check \
+          ansible-playbook main.yml --syntax-check \
             -i inventory/aws_ec2.yml \
             -e @inventory/group_vars/all.yml \
             -e @inventory/group_vars/web.yml \

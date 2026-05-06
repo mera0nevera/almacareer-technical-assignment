@@ -1,11 +1,4 @@
 ---
-# Master playbook – provisions all 4 servers in the correct order.
-#
-# Usage:
-#   ansible-playbook app.yml                          # full provision
-#   ansible-playbook app.yml --tags config            # only config files
-#   ansible-playbook app.yml --check --diff           # dry-run with diff
-#   ansible-playbook app.yml --limit tag_Role_web01   # single host
 
 - name: Common baseline on all hosts
   hosts: all
