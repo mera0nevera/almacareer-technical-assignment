@@ -3,18 +3,24 @@
 - name: Common baseline on all hosts
   hosts: all
   gather_facts: false
+  become: true
+  become_method: sudo
   roles:
     - common
 
 - name: HAProxy load balancer
   hosts: role_haproxy
   gather_facts: false
+  become: true
+  become_method: sudo
   roles:
     - haproxy
 
 - name: Web servers (Nginx + PHP-FPM + app)
   hosts: web
   gather_facts: false
+  become: true
+  become_method: sudo
   roles:
     - nginx
     - php_app
@@ -22,6 +28,8 @@
 - name: Database server
   hosts: role_db
   gather_facts: true
+  become: true
+  become_method: sudo
   vars_files:
     - inventory/group_vars/web.yml
   vars:
