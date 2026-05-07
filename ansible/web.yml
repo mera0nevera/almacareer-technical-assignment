@@ -2,6 +2,8 @@
 
 - name: Web servers
   hosts: web
+  become: true
+  become_method: sudo
   roles:
     - common
     - nginx

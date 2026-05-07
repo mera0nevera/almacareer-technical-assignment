@@ -7,6 +7,8 @@
 
 - name: Database
   hosts: role_db
+  become: true
+  become_method: sudo
   vars_files:
     - inventory/group_vars/web.yml
   vars:

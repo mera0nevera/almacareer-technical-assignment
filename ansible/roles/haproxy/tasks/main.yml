@@ -7,6 +7,24 @@
     state: present
   tags: packages
 
+- name: Ensure /run/haproxy exists for admin socket
+  ansible.builtin.file:
+    path: /run/haproxy
+    state: directory
+    owner: haproxy
+    group: haproxy
+    mode: "0755"
+  tags: service
+
+- name: Persist /run/haproxy across reboots via tmpfiles.d
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/haproxy.conf
+    content: "d /run/haproxy 0755 haproxy haproxy -\n"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: service
+
 - name: Open HTTP port in firewall
   ansible.posix.firewalld:
     port: "{{ item }}/tcp"

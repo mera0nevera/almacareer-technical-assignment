@@ -7,6 +7,8 @@
 
 - name: HAProxy
   hosts: role_haproxy
+  become: true
+  become_method: sudo
   roles:
     - common
     - haproxy

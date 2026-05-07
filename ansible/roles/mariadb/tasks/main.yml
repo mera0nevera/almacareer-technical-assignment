@@ -33,6 +33,7 @@
     host_all: true
     login_user: root
     login_password: "{{ db_root_pass }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
     state: absent
   no_log: true
   tags: security
@@ -43,6 +44,7 @@
     host: "{{ item }}"
     login_user: root
     login_password: "{{ db_root_pass }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
     state: absent
   loop:
     - "{{ ansible_hostname }}"
@@ -56,6 +58,7 @@
     name: test
     login_user: root
     login_password: "{{ db_root_pass }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
     state: absent
   no_log: true
   tags: security
@@ -67,6 +70,7 @@
     collation: utf8mb4_unicode_ci
     login_user: root
     login_password: "{{ db_root_pass }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
     state: present
   tags: schema
 
@@ -78,6 +82,7 @@
     priv: "{{ db_name }}.*:ALL"
     login_user: root
     login_password: "{{ db_root_pass }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
     state: present
   loop: "{{ groups['web'] | map('extract', hostvars, 'private_ip') | list }}"
   no_log: true
@@ -87,6 +92,7 @@
   community.mysql.mysql_query:
     login_user: root
     login_password: "{{ db_root_pass }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
     login_db: "{{ db_name }}"
     query:
       - |
