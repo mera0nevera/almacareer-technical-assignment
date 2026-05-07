@@ -21,7 +21,7 @@
 
 - name: Database server
   hosts: role_db
-  gather_facts: false
+  gather_facts: true
   vars_files:
     - inventory/group_vars/web.yml
   vars:

@@ -6,7 +6,7 @@
 #   3. ansible-playbook web.yml --tags app_config  # pushes new config.php to web servers
 
 - name: Database
-  hosts: tag_Role_db
+  hosts: role_db
   vars_files:
     - inventory/group_vars/web.yml
   vars:

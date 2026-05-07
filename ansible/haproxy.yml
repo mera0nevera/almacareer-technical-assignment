@@ -6,7 +6,7 @@
 # Server IPs are resolved at run-time from the 'web' inventory group – no file edits needed.
 
 - name: HAProxy
-  hosts: tag_Role_haproxy
+  hosts: role_haproxy
   roles:
     - common
     - haproxy
