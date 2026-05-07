@@ -7,6 +7,23 @@ on:
     branches: [master]
   workflow_call:
   workflow_dispatch:
+    inputs:
+      run_tests:
+        description: 'Verify — TypeScript tests'
+        type: boolean
+        default: true
+      deploy_cdk:
+        description: 'Provision — infrastructure (CDK)'
+        type: boolean
+        default: true
+      run_ansible:
+        description: 'Configure — servers (Ansible)'
+        type: boolean
+        default: true
+      smoke_test:
+        description: 'Validate — smoke test'
+        type: boolean
+        default: true
 
 # Never cancel a running deploy – finish it, then start the next.
 concurrency:
@@ -26,11 +43,17 @@ env:
 
 # ── Job dependency graph ──────────────────────────────────────────────────────
 #
-#   changes ─┬─► test ─┬─► deploy-cdk ──────────────► run-ansible ─► smoke-test
-#             │         │                                    ▲
-#             │         └────────────────────────────────────┘
-#             │                (runs if ansible/ changed OR cdk deployed)
-#             └─────────────────────────────────────────────────────────────────
+#   changes ─► test ─► deploy-cdk ─► run-ansible ─► smoke-test
+#
+# Push / PR:
+#   - test:        always
+#   - deploy-cdk:  if cdk/ changed
+#   - run-ansible: if ansible/ or app/ changed, OR cdk was just deployed
+#   - smoke-test:  if run-ansible succeeded
+#
+# workflow_dispatch:
+#   - each job runs only if its corresponding input checkbox is true
+#     (run_tests / deploy_cdk / run_ansible / smoke_test)
 
 jobs:
   # ── 1. Detect what changed ─────────────────────────────────────────────────
@@ -55,11 +78,16 @@ jobs:
             app:
               - 'app/**'
 
-  # ── 2. TypeScript tests (always runs) ────────────────────────────────────
+  # ── 2. TypeScript tests ──────────────────────────────────────────────────
+  # On push/PR: always runs.
+  # On workflow_dispatch: runs only if `run_tests` input is true.
   test:
     name: Verify — TypeScript tests
     runs-on: ubuntu-latest
     needs: changes
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.run_tests
     defaults:
       run:
         working-directory: cdk
@@ -89,7 +117,14 @@ jobs:
     name: Provision — infrastructure (CDK)
     runs-on: ubuntu-latest
     needs: [test, changes]
-    if: needs.changes.outputs.cdk == 'true'
+    if: |
+      always() &&
+      needs.test.result != 'failure' &&
+      needs.test.result != 'cancelled' &&
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.deploy_cdk) ||
+        (github.event_name != 'workflow_dispatch' && needs.changes.outputs.cdk == 'true')
+      )
     environment: production       # GitHub Environment gate – manual approval if configured
     permissions:
       id-token: write             # required for OIDC token
@@ -149,14 +184,20 @@ jobs:
   run-ansible:
     name: Configure — servers (Ansible)
     runs-on: ubuntu-latest
-    needs: [test, changes]
+    needs: [test, changes, deploy-cdk]
     if: |
       always() &&
-      needs.test.result == 'success' &&
+      needs.test.result != 'failure' &&
+      needs.test.result != 'cancelled' &&
+      needs.deploy-cdk.result != 'failure' &&
+      needs.deploy-cdk.result != 'cancelled' &&
       (
-        github.event_name == 'workflow_dispatch' ||
-        needs.changes.outputs.ansible == 'true'  ||
-        needs.changes.outputs.app == 'true'
+        (github.event_name == 'workflow_dispatch' && inputs.run_ansible) ||
+        (github.event_name != 'workflow_dispatch' && (
+          needs.changes.outputs.ansible == 'true' ||
+          needs.changes.outputs.app     == 'true' ||
+          needs.deploy-cdk.result       == 'success'
+        ))
       )
     environment: production
     permissions:
@@ -229,7 +270,14 @@ jobs:
     needs: [run-ansible, deploy-cdk]
     if: |
       always() &&
-      needs.run-ansible.result == 'success'
+      needs.run-ansible.result != 'failure' &&
+      needs.run-ansible.result != 'cancelled' &&
+      needs.deploy-cdk.result != 'failure' &&
+      needs.deploy-cdk.result != 'cancelled' &&
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.smoke_test) ||
+        github.event_name != 'workflow_dispatch'
+      )
     permissions:
       id-token: write
       contents: read
