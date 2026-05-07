@@ -1,13 +1,20 @@
 ---
 # MariaDB role
 
-- name: Install MariaDB server and Python MySQL library
+- name: Install MariaDB server and pip
   ansible.builtin.dnf:
     name:
       - mariadb105-server
       - mariadb105
-      - python3-PyMySQL    # required by community.mysql modules
+      - python3-pip
     state: present
+  tags: packages
+
+- name: Install PyMySQL (required by community.mysql modules)
+  ansible.builtin.pip:
+    name: PyMySQL
+    state: present
+    extra_args: --break-system-packages
   tags: packages
 
 - name: Enable and start MariaDB
