@@ -7,6 +7,8 @@
   become_method: sudo
   roles:
     - common
+  tags:
+    - common
 
 - name: Database server
   hosts: role_db
@@ -19,6 +21,9 @@
     db_root_pass: "{{ db_pass }}_root"
   roles:
     - mariadb
+  tags:
+    - db
+    - mariadb
 
 - name: Web servers (Nginx + PHP-FPM + app)
   hosts: web
@@ -28,6 +33,8 @@
   roles:
     - nginx
     - php_app
+  tags:
+    - web
 
 - name: HAProxy load balancer
   hosts: role_haproxy
@@ -36,3 +43,6 @@
   become_method: sudo
   roles:
     - haproxy
+  tags:
+    - haproxy
+    - lb

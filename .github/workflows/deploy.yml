@@ -257,7 +257,7 @@ jobs:
         env:
           ANSIBLE_VAULT_PASSWORD_FILE: .vault_pass
         run: |
-          ansible-playbook main.yml --diff
+          ansible-playbook main.yml --diff --tags db
 
       - name: Cleanup secrets
         if: always()

@@ -29,6 +29,7 @@
     host: localhost
     password: "{{ db_root_pass }}"
     login_unix_socket: /var/lib/mysql/mysql.sock
+    check_implicit_admin: true
     state: present
   no_log: true
   tags: security
