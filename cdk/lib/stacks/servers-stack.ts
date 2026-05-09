@@ -89,8 +89,8 @@ export class ServersStack extends cdk.Stack {
       type: ec2.KeyPairType.RSA,
     });
 
-    const al2023       = ec2.MachineImage.latestAmazonLinux2023({ cachedInContext: false });
-    const publicSubnet = { availabilityZones: [AVAILABILITY_ZONE], subnetType: ec2.SubnetType.PUBLIC };
+    const al2023        = ec2.MachineImage.latestAmazonLinux2023({ cachedInContext: false });
+    const privateSubnet = { availabilityZones: [AVAILABILITY_ZONE], subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS };
 
     // ── IAM Roles ─────────────────────────────────────────────────────────────
     const haproxyRole = this.buildRole('HaproxyRole', props.haproxyLogs);
@@ -114,7 +114,7 @@ export class ServersStack extends cdk.Stack {
       instanceType:     ec2.InstanceType.of(EC2_CONFIG.instanceClass, EC2_CONFIG.instanceSize),
       machineImage:     al2023,
       securityGroup:    haproxySg,
-      vpcSubnets:       publicSubnet,
+      vpcSubnets:       privateSubnet,
       keyPair,
       role:             haproxyRole,
       privateIpAddress: IPS.haproxy,
@@ -132,7 +132,7 @@ export class ServersStack extends cdk.Stack {
       instanceType:     ec2.InstanceType.of(EC2_CONFIG.instanceClass, EC2_CONFIG.instanceSize),
       machineImage:     al2023,
       securityGroup:    webSg,
-      vpcSubnets:       publicSubnet,
+      vpcSubnets:       privateSubnet,
       keyPair,
       role:             webRole,
       privateIpAddress: IPS.web01,
@@ -150,7 +150,7 @@ export class ServersStack extends cdk.Stack {
       instanceType:     ec2.InstanceType.of(EC2_CONFIG.instanceClass, EC2_CONFIG.instanceSize),
       machineImage:     al2023,
       securityGroup:    webSg,
-      vpcSubnets:       publicSubnet,
+      vpcSubnets:       privateSubnet,
       keyPair,
       role:             webRole,
       privateIpAddress: IPS.web02,
@@ -168,7 +168,7 @@ export class ServersStack extends cdk.Stack {
       instanceType:     ec2.InstanceType.of(EC2_CONFIG.instanceClass, EC2_CONFIG.instanceSize),
       machineImage:     al2023,
       securityGroup:    dbSg,
-      vpcSubnets:       publicSubnet,
+      vpcSubnets:       privateSubnet,
       keyPair,
       role:             dbRole,
       privateIpAddress: IPS.db,

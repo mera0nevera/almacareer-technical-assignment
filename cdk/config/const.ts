@@ -17,11 +17,13 @@ export const PORTS = {
   haproxyStats: 8404,
 } as const;
 
+// These must fall inside the private subnet CIDR. CDK assigns subnet CIDRs in
+// declaration order from VPC_CIDR: public=10.0.0.0/24, private=10.0.1.0/24.
 export const IPS = {
-  haproxy: '10.0.0.10',
-  web01:   '10.0.0.11',
-  web02:   '10.0.0.12',
-  db:      '10.0.0.20',
+  haproxy: '10.0.1.10',
+  web01:   '10.0.1.11',
+  web02:   '10.0.1.12',
+  db:      '10.0.1.20',
 } as const;
 
 // ── Compute ───────────────────────────────────────────────────────────────
