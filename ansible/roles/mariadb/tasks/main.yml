@@ -14,7 +14,6 @@
   ansible.builtin.pip:
     name: PyMySQL
     state: present
-    extra_args: --break-system-packages
   tags: packages
 
 - name: Enable and start MariaDB
