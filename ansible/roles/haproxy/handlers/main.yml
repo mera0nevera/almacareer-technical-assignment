@@ -1,6 +1,10 @@
 ---
-# reload (not restart) keeps existing connections alive – zero-downtime config update
 - name: Reload haproxy
   ansible.builtin.service:
     name: haproxy
     state: reloaded
+
+- name: Restart rsyslog
+  ansible.builtin.service:
+    name: rsyslog
+    state: restarted

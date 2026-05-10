@@ -1,29 +1,17 @@
 ---
-# Variables for web servers (web01 and web02)
-# db_pass is encrypted with Ansible Vault – never commit the plaintext.
-#
-# To create/update the vault-encrypted password:
-#   ansible-vault encrypt_string 'AppPass123!' --name 'db_pass'
-# Then paste the output below.
-#
-# To run playbooks:
-#   ansible-playbook app.yaml --ask-vault-pass
-#   ANSIBLE_VAULT_PASSWORD_FILE=~/.vault_pass ansible-playbook app.yaml
 
-db_host: "{{ db_ip }}"
+db_host: "{{ hostvars[groups['role_db'][0]].private_ip }}"
 db_name: appdb
 db_user: appuser
 
-# Replace with vault-encrypted value in production:
-#   db_pass: !vault |
-#     $ANSIBLE_VAULT;1.1;AES256
-#     62333938316132303661323235613736...
 db_pass: "AppPass123!"
 
-# PHP-FPM
+db_root_pass: "{{ db_pass }}_root"
+
+# PHP-FPM pool
 php_fpm_pool_user:  nginx
 php_fpm_pool_group: nginx
 php_fpm_socket:     /run/php-fpm/www.sock
 
-# Web root
+# Web root served by nginx and populated by roles/php_app
 web_root: /var/www/html

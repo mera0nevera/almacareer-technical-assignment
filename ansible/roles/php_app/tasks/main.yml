@@ -1,20 +1,21 @@
 ---
-# PHP application deployment role
+# Part C
 
-- name: Ensure web root exists
+- name: Ensure web root exists with correct ownership
   ansible.builtin.file:
     path: "{{ web_root }}"
     state: directory
-    owner: nginx
-    group: nginx
+    owner: "{{ php_fpm_pool_user }}"
+    group: "{{ php_fpm_pool_group }}"
     mode: "0755"
+  tags: app_code
 
 - name: Deploy index.php
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../app/index.php"
     dest: "{{ web_root }}/index.php"
-    owner: nginx
-    group: nginx
+    owner: "{{ php_fpm_pool_user }}"
+    group: "{{ php_fpm_pool_group }}"
     mode: "0644"
   tags: app_code
 
@@ -22,52 +23,24 @@
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../app/health.php"
     dest: "{{ web_root }}/health.php"
-    owner: nginx
-    group: nginx
+    owner: "{{ php_fpm_pool_user }}"
+    group: "{{ php_fpm_pool_group }}"
     mode: "0644"
   tags: app_code
 
-- name: Deploy config.php from vault-encrypted vars
+- name: Render config.php from inventory variables
   ansible.builtin.template:
     src: config.php.j2
     dest: "{{ web_root }}/config.php"
     owner: root
-    group: nginx
-    mode: "0640"     # readable by nginx group, not world-readable
+    group: "{{ php_fpm_pool_group }}"
+    mode: "0640"
   no_log: true
   tags: app_config
 
-- name: Deploy fetch-app-config script (refreshes config from SSM on demand)
-  ansible.builtin.template:
-    src: fetch-app-config.j2
-    dest: /usr/local/bin/fetch-app-config
-    owner: root
-    group: root
-    mode: "0755"
-  tags: app_config
-
-- name: Deploy fetch-app-config systemd unit
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/fetch-app-config.service
-    content: |
-      [Unit]
-      Description=Refresh application config from SSM Parameter Store / Secrets Manager
-      After=network-online.target
-      Wants=network-online.target
-
-      [Service]
-      Type=oneshot
-      ExecStart=/usr/local/bin/fetch-app-config
-      RemainAfterExit=yes
-
-      [Install]
-      WantedBy=multi-user.target
-    mode: "0644"
-  notify: Reload systemd
-  tags: app_config
-
-- name: Enable fetch-app-config service
-  ansible.builtin.service:
-    name: fetch-app-config
-    enabled: true
-  tags: app_config
+# Restore SELinux labels so PHP-FPM can read the freshly copied files.
+- name: Restore SELinux contexts under web root
+  ansible.builtin.command: restorecon -Rv {{ web_root }}
+  changed_when: false
+  failed_when: false
+  tags: selinux

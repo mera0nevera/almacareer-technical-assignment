@@ -1,13 +1,25 @@
+# Managed by Ansible — roles/nginx/templates/app.conf.j2
 server {
-    listen 80 default_server;
+    listen      80 default_server;
     server_name _;
 
     root  {{ web_root }};
     index index.php;
 
     access_log /var/log/nginx/app_access.log;
-    error_log  /var/log/nginx/app_error.log;
+    error_log  /var/log/nginx/app_error.log warn;
 
+    # Identifies which backend served the request — used by HAProxy stats and
+    # by curl debugging from the load balancer.
+    add_header X-Backend-Host $hostname always;
+
+    # Friendly /health URL (no .php suffix). HAProxy hits this for httpchk.
+    # rewrite re-enters the location pipeline so the .php block executes the script.
+    location = /health {
+        rewrite ^/health$ /health.php last;
+    }
+
+    # Application
     location / {
         try_files $uri $uri/ /index.php?$query_string;
     }
@@ -17,8 +29,12 @@ server {
         fastcgi_index  index.php;
         fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include        fastcgi_params;
+        fastcgi_read_timeout 30;
     }
 
-    # Block direct access to the config file
+    # Block direct access to the rendered config file containing DB creds.
     location = /config.php { deny all; return 403; }
+
+    # Hide hidden files (.git, .env, etc.) if they ever land in web_root.
+    location ~ /\. { deny all; return 404; }
 }

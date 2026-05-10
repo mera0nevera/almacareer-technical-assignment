@@ -1,7 +1,7 @@
 ---
-# MariaDB role
+# Part B
 
-- name: Install MariaDB server and pip
+- name: Install MariaDB and Python deps
   ansible.builtin.dnf:
     name:
       - mariadb105-server
@@ -10,11 +10,22 @@
     state: present
   tags: packages
 
-- name: Install PyMySQL (required by community.mysql modules)
+- name: Install PyMySQL via pip (community.mysql modules need it)
   ansible.builtin.pip:
     name: PyMySQL
     state: present
+    executable: pip3
   tags: packages
+
+- name: Render MariaDB server config
+  ansible.builtin.template:
+    src: 50-server.cnf.j2
+    dest: /etc/my.cnf.d/50-server.cnf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mariadb
+  tags: config
 
 - name: Enable and start MariaDB
   ansible.builtin.service:
@@ -23,13 +34,25 @@
     enabled: true
   tags: service
 
-- name: Set MariaDB root password
+- name: Drop the .my.cnf shortcut so subsequent runs auth via password
+  ansible.builtin.template:
+    src: root-my.cnf.j2
+    dest: /root/.my.cnf
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  tags: security
+
+- name: Set MariaDB root password (works on fresh and existing installs)
   community.mysql.mysql_user:
     name: root
-    host: localhost
+    host_all: true
     password: "{{ db_root_pass }}"
-    login_unix_socket: /var/lib/mysql/mysql.sock
     check_implicit_admin: true
+    login_user: root
+    login_password: "{{ db_root_pass }}"
+    login_unix_socket: /var/lib/mysql/mysql.sock
     state: present
   no_log: true
   tags: security
@@ -45,22 +68,7 @@
   no_log: true
   tags: security
 
-- name: Remove remote root login
-  community.mysql.mysql_user:
-    name: root
-    host: "{{ item }}"
-    login_user: root
-    login_password: "{{ db_root_pass }}"
-    login_unix_socket: /var/lib/mysql/mysql.sock
-    state: absent
-  loop:
-    - "{{ ansible_hostname }}"
-    - "127.0.0.1"
-    - "::1"
-  no_log: true
-  tags: security
-
-- name: Remove test database
+- name: Remove the default test database
   community.mysql.mysql_db:
     name: test
     login_user: root
@@ -81,7 +89,19 @@
     state: present
   tags: schema
 
-- name: Create application user – allowed only from web server IPs
+- name: Resolve list of web private IPs allowed to talk to MySQL
+  ansible.builtin.set_fact:
+    web_private_ips: "{{ groups['web'] | map('extract', hostvars, 'private_ip') | list }}"
+  tags: [schema, firewall]
+
+- name: Fail if no web hosts were discovered (inventory broken or empty)
+  ansible.builtin.assert:
+    that:
+      - web_private_ips | length > 0
+    fail_msg: "No hosts found in group 'web'. Check tags Role=web01/web02 and the aws_ec2 inventory plugin."
+  tags: [schema, firewall]
+
+- name: Create application user, scoped to each web private IP
   community.mysql.mysql_user:
     name: "{{ db_user }}"
     host: "{{ item }}"
@@ -91,11 +111,11 @@
     login_password: "{{ db_root_pass }}"
     login_unix_socket: /var/lib/mysql/mysql.sock
     state: present
-  loop: "{{ groups['web'] | map('extract', hostvars, 'private_ip') | list }}"
+  loop: "{{ web_private_ips }}"
   no_log: true
   tags: schema
 
-- name: Create application schema
+- name: Create application schema (users + visits)
   community.mysql.mysql_query:
     login_user: root
     login_password: "{{ db_root_pass }}"
@@ -111,33 +131,24 @@
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       - |
         CREATE TABLE IF NOT EXISTS visits (
-          id               INT AUTO_INCREMENT PRIMARY KEY,
-          server_hostname  VARCHAR(200) NOT NULL,
-          visited_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          id              INT AUTO_INCREMENT PRIMARY KEY,
+          server_hostname VARCHAR(200) NOT NULL,
+          visited_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           INDEX idx_server (server_hostname),
           INDEX idx_time   (visited_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       - |
         INSERT IGNORE INTO users (username, email)
         VALUES ('admin', 'admin@example.com'), ('testuser', 'test@example.com')
-  no_log: true
   tags: schema
 
-- name: Deploy MariaDB server config
-  ansible.builtin.template:
-    src: 50-server.cnf.j2
-    dest: /etc/my.cnf.d/50-server.cnf
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Restart mariadb
-  tags: config
-
-- name: Open MySQL port only from web server IPs
+# ── Firewall ────────────────────────────────────────────────────────────────
+- name: Open MySQL port only from web private IPs
   ansible.posix.firewalld:
     rich_rule: "rule family='ipv4' source address='{{ item }}/32' port port='3306' protocol='tcp' accept"
     permanent: true
     state: enabled
     immediate: true
-  loop: "{{ groups['web'] | map('extract', hostvars, 'private_ip') | list }}"
+  loop: "{{ web_private_ips }}"
+  when: manage_firewall | bool
   tags: firewall

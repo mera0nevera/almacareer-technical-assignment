@@ -1,11 +1,24 @@
 ---
-# Variables applied to every host in the inventory.
 
-admin_user: ec2-user
+admin_user: sysadmin
 
 sshd_config:
   PermitRootLogin: "no"
   PasswordAuthentication: "no"
   X11Forwarding: "no"
   MaxAuthTries: "3"
-  AllowTcpForwarding: "yes"
+  ClientAliveInterval: "300"
+  ClientAliveCountMax: "2"
+  AllowTcpForwarding: "yes"  # SSM need it
+
+chrony_pool: "169.254.169.123"
+
+manage_firewall: true
+
+hostname_prefix: lmc
+
+# role_to_hostname:
+#   haproxy: lmc-haproxy
+#   web01:   lmc-web01
+#   web02:   lmc-web02
+#   db:      lmc-db

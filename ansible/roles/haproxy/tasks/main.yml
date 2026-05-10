@@ -1,42 +1,59 @@
 ---
-# HAProxy role – installs and configures the load balancer.
+# Part D
 
-- name: Install HAProxy
+- name: Install HAProxy and rsyslog
   ansible.builtin.dnf:
-    name: haproxy
+    name:
+      - haproxy
+      - rsyslog
     state: present
   tags: packages
 
-- name: Ensure /run/haproxy exists for admin socket
+- name: Enable and start rsyslog
+  ansible.builtin.service:
+    name: rsyslog
+    state: started
+    enabled: true
+  tags: service
+
+- name: Ensure haproxy log directory exists
   ansible.builtin.file:
-    path: /run/haproxy
+    path: /var/log/haproxy
     state: directory
     owner: haproxy
     group: haproxy
     mode: "0755"
-  tags: service
+  tags: config
 
-- name: Persist /run/haproxy across reboots via tmpfiles.d
+- name: Configure rsyslog to capture haproxy via UDP/local2
   ansible.builtin.copy:
-    dest: /etc/tmpfiles.d/haproxy.conf
-    content: "d /run/haproxy 0755 haproxy haproxy -\n"
+    dest: /etc/rsyslog.d/49-haproxy.conf
+    content: |
+      # Managed by Ansible
+      module(load="imudp")
+      input(type="imudp" port="514" address="127.0.0.1")
+      local2.* /var/log/haproxy/haproxy.log
+      & stop
     owner: root
     group: root
     mode: "0644"
-  tags: service
+  notify: Restart rsyslog
+  tags: config
 
-- name: Open HTTP port in firewall
-  ansible.posix.firewalld:
-    port: "{{ item }}/tcp"
-    permanent: true
-    state: enabled
-    immediate: true
-  loop:
-    - "80"
-    - "8404"   # HAProxy stats page
-  tags: firewall
+- name: Resolve list of webservers backend members [(role, ip)] sorted by role
+  ansible.builtin.set_fact:
+    web_backends: "{{ web_backends | default([]) + [[hostvars[item].tags.Role, hostvars[item].private_ip]] }}"
+  loop: "{{ groups['web'] | sort }}"
+  tags: [config, always]
 
-- name: Deploy haproxy.cfg from template
+- name: Fail if no webservers were discovered
+  ansible.builtin.assert:
+    that:
+      - web_backends | length >= 1
+    fail_msg: "No webservers found. Check tags Role=web01/web02 on EC2 instances."
+  tags: [config, always]
+
+- name: Render haproxy.cfg
   ansible.builtin.template:
     src: haproxy.cfg.j2
     dest: /etc/haproxy/haproxy.cfg
@@ -46,6 +63,27 @@
     validate: haproxy -c -f %s
   notify: Reload haproxy
   tags: config
+
+- name: Open HAProxy ports in firewalld (HTTP + stats)
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop:
+    - 80/tcp
+    - 8404/tcp
+  when: manage_firewall | bool
+  tags: firewall
+
+# - name: Allow HAProxy to bind to non-local IPs like VIP or so
+#   ansible.posix.sysctl:
+#     name: net.ipv4.ip_nonlocal_bind
+#     value: "1"
+#     sysctl_set: true
+#     state: present
+#     reload: true
+#   tags: config
 
 - name: Enable and start HAProxy
   ansible.builtin.service:

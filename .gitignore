@@ -16,3 +16,4 @@ cdk/coverage/
 !cdk/lib/**/*.js
 !cdk/config/**/*.js
 
+docs/

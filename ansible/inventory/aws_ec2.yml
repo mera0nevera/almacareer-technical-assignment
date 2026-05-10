@@ -1,6 +1,7 @@
 ---
 
 plugin: amazon.aws.aws_ec2
+
 regions:
   - eu-central-1
 
@@ -12,12 +13,11 @@ hostnames:
   - instance-id
 
 keyed_groups:
-  - key: tags.Environment
-    prefix: env
-  - key: tags.Name
-    prefix: name
   - key: tags.Role
     prefix: role
+    separator: _
+  - key: tags.Environment
+    prefix: env
     separator: _
 
 groups:
@@ -29,5 +29,11 @@ compose:
   ansible_connection: "'amazon.aws.aws_ssm'"
   ansible_aws_ssm_region: "'eu-central-1'"
   ansible_aws_ssm_bucket_name: "lookup('amazon.aws.aws_ssm', '/lmc/ansible/ssm-bucket', region='eu-central-1')"
-  ansible_aws_ssm_s3_addressing_style: "'virtual'"
+  # ansible_aws_ssm_s3_addressing_style: "'virtual'"
   ansible_aws_ssm_timeout: 600
+  # ansible_python_interpreter: "'/usr/bin/python3'"
+
+cache: true
+cache_plugin: jsonfile
+cache_connection: .ansible_inventory_cache
+cache_timeout: 600

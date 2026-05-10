@@ -1,48 +1,37 @@
 ---
 
-- name: Common baseline on all hosts
+- name: A — Common baseline on every host
   hosts: all
-  gather_facts: false
+  gather_facts: true
   become: true
   become_method: sudo
   roles:
     - common
-  tags:
-    - common
 
-- name: Database server
+- name: B — Database
   hosts: role_db
   gather_facts: true
   become: true
   become_method: sudo
   vars_files:
     - inventory/group_vars/web.yml
-  vars:
-    db_root_pass: "{{ db_pass }}_root"
   roles:
     - mariadb
-  tags:
-    - db
-    - mariadb
 
-- name: Web servers (Nginx + PHP-FPM + app)
+- name: C — Web servers (Nginx + PHP-FPM + LMC app)
   hosts: web
-  gather_facts: false
+  gather_facts: true
   become: true
   become_method: sudo
+  serial: 1   # never break both web servers at once
   roles:
     - nginx
     - php_app
-  tags:
-    - web
 
-- name: HAProxy load balancer
+- name: D — HAProxy load balancer
   hosts: role_haproxy
-  gather_facts: false
+  gather_facts: true
   become: true
   become_method: sudo
   roles:
     - haproxy
-  tags:
-    - haproxy
-    - lb

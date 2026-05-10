@@ -1,17 +1,96 @@
 ---
-# Common role – applied to every host.
-# Sets hostname, NTP, admin user, SSH hardening, firewall.
+# Part A
+
+- name: Resolve role tag for this host
+  ansible.builtin.set_fact:
+    host_role: "{{ tags.Role | default('unknown') }}"
+  tags: always
+
+- name: Compute target hostname from role
+  ansible.builtin.set_fact:
+    target_hostname: "{{ hostname_prefix }}-{{ host_role }}"
+  tags: always
 
 - name: Set system hostname
   ansible.builtin.hostname:
-    name: "{{ inventory_hostname_short }}"
+    name: "{{ target_hostname }}"
     use: systemd
   tags: hostname
 
-- name: Install chrony (NTP)
+- name: Ensure /etc/hosts has a 127.0.0.1 entry for the new hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.0\.1\s'
+    line: "127.0.0.1  {{ target_hostname }} localhost localhost.localdomain"
+    state: present
+    unsafe_writes: true
+  tags: hostname
+
+- name: Add /etc/hosts entries for every LMC role (cross-host name resolution)
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE MANAGED LMC HOSTS"
+    unsafe_writes: true
+    block: |
+      {% for h in groups['all'] | sort %}
+      {%   set role = hostvars[h].tags.Role | default('') %}
+      {%   if role %}
+      {{ hostvars[h].private_ip }}  {{ hostname_prefix }}-{{ role }}
+      {%   endif %}
+      {% endfor %}
+  tags: hostname
+
+- name: Create admin group
+  ansible.builtin.group:
+    name: "{{ admin_user }}"
+    state: present
+  tags: user
+
+- name: Create admin user with sudo
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    group: "{{ admin_user }}"
+    groups: wheel
+    append: true
+    shell: /bin/bash
+    create_home: true
+    state: present
+  tags: user
+
+- name: Sudoers NOPASSWD for admin
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-{{ admin_user }}"
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  tags: user
+
+- name: Apply sshd hardening
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?\\s*{{ item.key }}\\b"
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+    validate: /usr/sbin/sshd -t -f %s
+  loop: "{{ sshd_config | dict2items }}"
+  notify: Restart sshd
+  tags: sshd
+
+- name: Install chrony
   ansible.builtin.dnf:
     name: chrony
     state: present
+  tags: ntp
+
+- name: Configure chrony to use the AWS time service
+  ansible.builtin.lineinfile:
+    path: /etc/chrony.conf
+    regexp: '^(server|pool)\s'
+    line: "server {{ chrony_pool }} prefer iburst minpoll 4 maxpoll 4"
+    state: present
+  notify: Restart chronyd
   tags: ntp
 
 - name: Enable and start chronyd
@@ -21,17 +100,19 @@
     enabled: true
   tags: ntp
 
-- name: Install and enable firewalld
+- name: Install firewalld
   ansible.builtin.dnf:
     name: firewalld
     state: present
+  when: manage_firewall | bool
   tags: firewall
 
-- name: Start and enable firewalld
+- name: Enable and start firewalld
   ansible.builtin.service:
     name: firewalld
     state: started
     enabled: true
+  when: manage_firewall | bool
   tags: firewall
 
 - name: Allow SSH through firewall
@@ -40,4 +121,5 @@
     permanent: true
     state: enabled
     immediate: true
+  when: manage_firewall | bool
   tags: firewall

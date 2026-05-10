@@ -1,12 +1,16 @@
 [mysqld]
-# Bind to all interfaces – access is restricted by security group + firewall rules
-bind-address     = 0.0.0.0
 
-# Slow query log – helps identify performance issues
-slow_query_log      = 1
-slow_query_log_file = /var/log/mariadb/slow.log
-long_query_time     = 2
+bind-address         = 0.0.0.0
 
-# General settings
+# Sensible character defaults
 character-set-server = utf8mb4
 collation-server     = utf8mb4_unicode_ci
+
+# Slow query log helps diagnose problems (Part E: troubleshooting)
+slow_query_log       = 1
+slow_query_log_file  = /var/log/mariadb/slow.log
+long_query_time      = 2
+
+# Production-ish defaults
+max_connections      = 100
+innodb_file_per_table = 1

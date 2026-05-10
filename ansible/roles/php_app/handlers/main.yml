@@ -1,4 +1,3 @@
 ---
-- name: Reload systemd
-  ansible.builtin.systemd:
-    daemon_reload: true
+# Intentionally empty: the nginx role owns reloads. Placed here so role-loading
+# never fails on a missing handlers file.

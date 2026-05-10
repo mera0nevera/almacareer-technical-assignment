@@ -1,46 +1,50 @@
 ---
-# Nginx + PHP-FPM role
+#  Part C 
 
-- name: Install Nginx and PHP packages
+- name: Install Nginx and PHP-FPM stack
   ansible.builtin.dnf:
     name:
       - nginx
       - php-fpm
       - php-mysqlnd
       - php-json
+      - policycoreutils-python-utils
     state: present
   tags: packages
 
-- name: Open HTTP port in firewall
+- name: Allow HTTP from the HAProxy private IP only
   ansible.posix.firewalld:
-    port: 80/tcp
+    rich_rule: "rule family='ipv4' source address='{{ hostvars[groups['role_haproxy'][0]].private_ip }}/32' port port='80' protocol='tcp' accept"
     permanent: true
     state: enabled
     immediate: true
+  when: manage_firewall | bool
   tags: firewall
 
-- name: Configure PHP-FPM pool to run as nginx user
+- name: Configure PHP-FPM pool
   ansible.builtin.lineinfile:
     path: /etc/php-fpm.d/www.conf
     regexp: "{{ item.regexp }}"
     line: "{{ item.line }}"
   loop:
-    - { regexp: '^user = ',          line: 'user = {{ php_fpm_pool_user }}' }
-    - { regexp: '^group = ',         line: 'group = {{ php_fpm_pool_group }}' }
-    - { regexp: '^listen = ',        line: 'listen = {{ php_fpm_socket }}' }
-    - { regexp: '^;?listen.owner =', line: 'listen.owner = {{ php_fpm_pool_user }}' }
-    - { regexp: '^;?listen.group =', line: 'listen.group = {{ php_fpm_pool_group }}' }
-    - { regexp: '^listen.acl_users', line: ';listen.acl_users =' }
+    - { regexp: '^user = ',           line: 'user = {{ php_fpm_pool_user }}' }
+    - { regexp: '^group = ',          line: 'group = {{ php_fpm_pool_group }}' }
+    - { regexp: '^listen = ',         line: 'listen = {{ php_fpm_socket }}' }
+    - { regexp: '^;?listen.owner =',  line: 'listen.owner = {{ php_fpm_pool_user }}' }
+    - { regexp: '^;?listen.group =',  line: 'listen.group = {{ php_fpm_pool_group }}' }
+    - { regexp: '^;?listen.mode =',   line: 'listen.mode = 0660' }
+    - { regexp: '^listen.acl_users',  line: ';listen.acl_users =' }
   notify: Reload php-fpm
   tags: config
 
-- name: Remove default nginx config shipped by the package
+# ── Nginx config ────────────────────────────────────────────────────────────
+- name: Drop the default nginx server block
   ansible.builtin.file:
     path: /etc/nginx/conf.d/default.conf
     state: absent
   tags: config
 
-- name: Deploy nginx server block from template
+- name: Render LMC nginx server block
   ansible.builtin.template:
     src: app.conf.j2
     dest: /etc/nginx/conf.d/app.conf
@@ -48,23 +52,32 @@
     group: root
     mode: "0644"
   notify: Reload nginx
-  tags: config, nginx_config
+  tags: config
 
-# Full-config check after the fragment is in place. Fails the play if the
-# rendered server block breaks nginx -t, before the reload handler runs.
-- name: Validate full nginx config
-  ansible.builtin.command: nginx -t -c /etc/nginx/nginx.conf
+- name: Validate full nginx configuration
+  ansible.builtin.command: nginx -t
   changed_when: false
-  tags: config, nginx_config
+  tags: config
 
-- name: Ensure web root exists with correct ownership
+- name: Create web root
   ansible.builtin.file:
     path: "{{ web_root }}"
     state: directory
-    owner: nginx
-    group: nginx
+    owner: "{{ php_fpm_pool_user }}"
+    group: "{{ php_fpm_pool_group }}"
     mode: "0755"
   tags: config
+
+- name: Allow PHP-FPM to talk to remote DB (SELinux)
+  ansible.posix.seboolean:
+    name: "{{ item }}"
+    state: true
+    persistent: true
+  loop:
+    - httpd_can_network_connect_db
+    - httpd_can_network_connect
+  failed_when: false
+  tags: selinux
 
 - name: Enable and start PHP-FPM
   ansible.builtin.service:
