@@ -257,11 +257,11 @@ jobs:
         env:
           ANSIBLE_VAULT_PASSWORD_FILE: .vault_pass
         run: |
-          ansible-playbook main.yml --diff --tags db
+          ansible-playbook main.yml --diff
 
-      - name: Cleanup secrets
-        if: always()
-        run: rm -f lmc-key.pem .vault_pass
+      # - name: Cleanup secrets
+      #   if: always()
+      #   run: rm -f lmc-key.pem .vault_pass
 
   # ── 5. Smoke test – verify the app works end-to-end ──────────────────────
   smoke-test:
