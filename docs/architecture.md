@@ -35,7 +35,9 @@ with **Ansible** over **AWS Systems Manager** (no SSH keys, no public IPs).
 All four EC2 instances live in a single **private** subnet (`10.0.1.0/24`)
 inside `VPC 10.0.0.0/16`. No public IPs are attached to any host. Egress goes
 through a NAT Gateway in the public subnet; admin access goes through SSM
-Session Manager (browser, CLI, or port-forward).
+Session Manager (browser, CLI, or port-forward). An S3 gateway endpoint is
+attached to the VPC so the Ansible SSM connection plugin can transfer modules
+to instances without paying NAT data-processing charges.
 
 ## IP plan & service inventory
 
@@ -64,20 +66,26 @@ inventory plugin discovers them automatically.
 ## Security model
 
 ```
-Internet → HAProxy SG  : 80/tcp (HTTP), 8404/tcp (stats), 22/tcp (SSM)
-HAProxy  → Web SG      : 80/tcp only
-Web SG   → DB SG       : 3306/tcp only
-Internet → DB SG       : blocked (only 22/tcp via SSM)
+Internet → HAProxy SG  : 80/tcp (HTTP), 8404/tcp (stats), 22/tcp (break-glass)
+HAProxy  → Web SG      : 80/tcp
+Web SG   → DB SG       : 3306/tcp
+Internet → All SGs     : 22/tcp open (break-glass with the lmc-keypair private key)
 ```
 
-Defence in depth — every host runs `firewalld` with rules that mirror the
-security-group policy.
+Port 22 is open on every SG so the RSA key pair (`lmc-keypair`, private key in
+SSM Parameter Store under `/ec2/keypair/<id>`) can be used as a break-glass
+fallback when SSM is unavailable. The primary access path is SSM Session
+Manager — close port 22 once SSM is the only access path in your environment.
+
+Defence in depth — every host runs `firewalld` with rules that are tighter
+than the security groups (haproxy IP-only for web, web IPs-only for DB).
 
 Hardening on every node:
 - Direct root SSH login disabled (`PermitRootLogin no`)
 - Password authentication disabled (`PasswordAuthentication no`)
-- Admin user `sysadmin` with passwordless sudo, no SSH keys distributed
-  (access is via SSM Session Manager, audited in CloudTrail)
+- Admin user `sysadmin` with passwordless sudo
+- Day-to-day access via SSM Session Manager (audited in CloudTrail); SSH
+  break-glass key is checked into SSM Parameter Store, not distributed
 - Encrypted EBS root volume (GP3, AES-256, `deleteOnTermination: true`)
 - IMDSv2 required (mitigates SSRF against instance metadata)
 - Time synchronised via `chronyd` against AWS time service (`169.254.169.123`)
@@ -103,17 +111,35 @@ ansible-galaxy collection install -r ansible/collection-requirements.yml
 cd cdk
 npm ci
 npx cdk bootstrap                                     # one-time per account/region
+
+# 1. One-time GitHub OIDC bootstrap (so CI can deploy without long-lived keys)
+npx cdk deploy LmcGithubOidc \
+  -c githubOrg=<org> -c githubRepo=<repo>
+#    → copy the DeployRoleArn output to GitHub secret AWS_DEPLOY_ROLE_ARN
+
+# 2. Application stacks
 npx cdk deploy --all
 ```
 
-CDK creates three CloudFormation stacks:
+CDK creates four CloudFormation stacks (`LmcServers` reads from `LmcNetwork`
+and `LmcConfig` via stack-to-stack references; `LmcGithubOidc` is standalone):
 
-- **LmcNetwork** — VPC, public + private subnets, NAT gateway, security groups
+- **LmcGithubOidc** — GitHub OIDC provider + `github-actions-lmc-deploy` IAM
+  role. Trust policy locked to `repo:<org>/<repo>:<ref>`; deploy this once,
+  then expose the role ARN as `AWS_DEPLOY_ROLE_ARN` in GitHub Secrets.
+- **LmcNetwork** — VPC, public + private subnets, NAT gateway, security
+  groups, S3 gateway endpoint
 - **LmcConfig** — Secrets Manager (`/lmc/db/credentials`), SSM Parameter Store
   (`/lmc/db/host`, `/lmc/db/name`, `/lmc/db/user`, `/lmc/ansible/ssm-bucket`),
   CloudWatch log groups, the S3 bucket used by Ansible's SSM connection plugin
 - **LmcServers** — 4 EC2 instances (HAProxy / Web01 / Web02 / DB), instance
-  IAM roles with `AmazonSSMManagedInstanceCore` + `CloudWatchAgentServerPolicy`
+  IAM roles with `AmazonSSMManagedInstanceCore` + `CloudWatchAgentServerPolicy`,
+  RSA key pair `lmc-keypair` (break-glass), and cfn-init bootstrap that
+  installs the CloudWatch agent configs (log group names from `LmcConfig`).
+  Application-level config (haproxy.cfg, nginx app.conf, php-fpm pool) is
+  owned exclusively by Ansible.
+
+All three application stacks have `terminationProtection: true`.
 
 ### Configure servers
 
@@ -123,14 +149,15 @@ cd ansible
 ./run.sh main.yml          # full provisioning: common → DB → Web → HAProxy
 ```
 
-Subset playbooks for targeted runs:
+Subset playbooks for targeted runs (each also runs `common` to keep the
+baseline drift-free):
 
 ```bash
-./run.sh db.yml                          # DB only
-./run.sh web.yml                         # both webs (serial=1; never breaks both)
+./run.sh db.yml                          # common + mariadb
+./run.sh web.yml                         # common + nginx + php_app (serial=1)
 ./run.sh web.yml --tags app_code         # ship index.php / health.php only
 ./run.sh web.yml --tags app_config       # rotate config.php after Vault edit
-./run.sh haproxy.yml                     # rebuild haproxy.cfg from current 'web' group
+./run.sh haproxy.yml                     # common + haproxy (rebuilds haproxy.cfg)
 ```
 
 `run.sh` is a thin wrapper around `ansible-playbook` that pre-flights AWS
@@ -152,8 +179,7 @@ ID=$(aws ec2 describe-instances --region eu-central-1 \
        --query 'Reservations[].Instances[].InstanceId' --output text)
 aws ssm start-session --target "$ID"
 
-# Port forward (use the helper script)
-cd ansible
+# Port forward (the helper script lives at the repo root, not in ansible/)
 ./tunnel.sh                  # haproxy :80   → http://localhost:8080
 ./tunnel.sh stats            # haproxy :8404 → http://localhost:8404/stats
 ./tunnel.sh web01            # web01 :80     → http://localhost:8081
@@ -259,9 +285,15 @@ cd cdk
 npx cdk destroy --all
 ```
 
-Note: `LmcNetwork` and `LmcConfig` have `terminationProtection: true` and
-`removalPolicy: RETAIN` on stateful resources (Secrets Manager, log groups).
-You'll need to remove those guards if you're tearing down for good.
+Notes:
+- All three application stacks (`LmcNetwork`, `LmcConfig`, `LmcServers`) have
+  `terminationProtection: true`; CDK destroy will fail until you disable it
+  in `bin/lmc.ts` or via `aws cloudformation update-termination-protection`.
+- Stateful resources in `LmcConfig` (Secrets Manager, CloudWatch log groups)
+  use `removalPolicy: RETAIN` — they survive a destroy. The Ansible SSM
+  bucket uses `RemovalPolicy.DESTROY` with `autoDeleteObjects: true`.
+- `LmcGithubOidc` is independent and rarely needs to be destroyed (you would
+  also need to remove the GitHub secret).
 
 ## Known limitations & possible improvements
 
@@ -274,4 +306,6 @@ You'll need to remove those guards if you're tearing down for good.
 | `db_pass` plaintext for demo                            | `ansible-vault encrypt_string` or read from Secrets Manager at boot |
 | HAProxy stats password in clear text                    | Source from Secrets Manager                                    |
 | firewalld rules duplicate SG rules                      | Defence in depth is a feature; could be gated by `manage_firewall` (already supported) |
+| Port 22 open to `0.0.0.0/0` on every SG                 | Once SSM is the only access path, remove the SSH ingress rule from `NetworkStack` and drop the `lmc-keypair` key pair |
+| `validation.yml`'s ansible-lint runs as warn-only       | Drop the trailing `\|\| true` once lint warnings are clean      |
 | No CI runs Ansible against ephemeral env                | Add a molecule + ansible-lint CI job (OIDC role is already provisioned) |

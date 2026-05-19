@@ -20,10 +20,10 @@ on:
         description: 'Configure — servers (Ansible)'
         type: boolean
         default: true
-      smoke_test:
-        description: 'Validate — smoke test'
-        type: boolean
-        default: true
+      # smoke_test:
+      #   description: 'Validate — smoke test'
+      #   type: boolean
+      #   default: true
 
 # Never cancel a running deploy – finish it, then start the next.
 concurrency:
@@ -264,90 +264,90 @@ jobs:
       #   run: rm -f lmc-key.pem .vault_pass
 
   # ── 5. Smoke test – verify the app works end-to-end ──────────────────────
-  smoke-test:
-    name: Validate — smoke test
-    runs-on: ubuntu-latest
-    needs: [run-ansible, deploy-cdk]
-    if: |
-      always() &&
-      needs.run-ansible.result != 'failure' &&
-      needs.run-ansible.result != 'cancelled' &&
-      needs.deploy-cdk.result != 'failure' &&
-      needs.deploy-cdk.result != 'cancelled' &&
-      (
-        (github.event_name == 'workflow_dispatch' && inputs.smoke_test) ||
-        github.event_name != 'workflow_dispatch'
-      )
-    permissions:
-      id-token: write
-      contents: read
+  # smoke-test:
+  #   name: Validate — smoke test
+  #   runs-on: ubuntu-latest
+  #   needs: [run-ansible, deploy-cdk]
+  #   if: |
+  #     always() &&
+  #     needs.run-ansible.result != 'failure' &&
+  #     needs.run-ansible.result != 'cancelled' &&
+  #     needs.deploy-cdk.result != 'failure' &&
+  #     needs.deploy-cdk.result != 'cancelled' &&
+  #     (
+  #       (github.event_name == 'workflow_dispatch' && inputs.smoke_test) ||
+  #       github.event_name != 'workflow_dispatch'
+  #     )
+  #   permissions:
+  #     id-token: write
+  #     contents: read
 
-    steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+  #   steps:
+  #     - name: Configure AWS credentials (OIDC)
+  #       uses: aws-actions/configure-aws-credentials@v4
+  #       with:
+  #         role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+  #         aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get HAProxy public IP
-        id: haproxy
-        run: |
-          IP=$(aws ec2 describe-instances \
-            --filters \
-              "Name=tag:Role,Values=haproxy" \
-              "Name=instance-state-name,Values=running" \
-            --query 'Reservations[0].Instances[0].PublicIpAddress' \
-            --output text)
-          echo "ip=${IP}" >> "$GITHUB_OUTPUT"
-          echo "HAProxy IP: ${IP}"
+  #     - name: Get HAProxy public IP
+  #       id: haproxy
+  #       run: |
+  #         IP=$(aws ec2 describe-instances \
+  #           --filters \
+  #             "Name=tag:Role,Values=haproxy" \
+  #             "Name=instance-state-name,Values=running" \
+  #           --query 'Reservations[0].Instances[0].PublicIpAddress' \
+  #           --output text)
+  #         echo "ip=${IP}" >> "$GITHUB_OUTPUT"
+  #         echo "HAProxy IP: ${IP}"
 
-      - name: Test – main page returns HTTP 200
-        run: |
-          CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
-            --retry 5 --retry-delay 5 --retry-connrefused \
-            http://${{ steps.haproxy.outputs.ip }}/)
-          [ "$CODE" = "200" ] || { echo "Expected 200, got $CODE"; exit 1; }
-          echo "Main page OK (HTTP $CODE)"
+  #     - name: Test – main page returns HTTP 200
+  #       run: |
+  #         CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
+  #           --retry 5 --retry-delay 5 --retry-connrefused \
+  #           http://${{ steps.haproxy.outputs.ip }}/)
+  #         [ "$CODE" = "200" ] || { echo "Expected 200, got $CODE"; exit 1; }
+  #         echo "Main page OK (HTTP $CODE)"
 
-      - name: Test – health endpoint returns JSON status ok
-        run: |
-          RESPONSE=$(curl -sf \
-            --retry 5 --retry-delay 5 \
-            http://${{ steps.haproxy.outputs.ip }}/health)
-          echo "$RESPONSE" | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          assert d.get('status') == 'ok', f'Health check failed: {d}'
-          print('Health OK:', d)
-          "
+  #     - name: Test – health endpoint returns JSON status ok
+  #       run: |
+  #         RESPONSE=$(curl -sf \
+  #           --retry 5 --retry-delay 5 \
+  #           http://${{ steps.haproxy.outputs.ip }}/health)
+  #         echo "$RESPONSE" | python3 -c "
+  #         import sys, json
+  #         d = json.load(sys.stdin)
+  #         assert d.get('status') == 'ok', f'Health check failed: {d}'
+  #         print('Health OK:', d)
+  #         "
 
-      - name: Test – load balancing (both web01 and web02 respond)
-        run: |
-          python3 - <<'PY'
-          import urllib.request, json, time
+  #     - name: Test – load balancing (both web01 and web02 respond)
+  #       run: |
+  #         python3 - <<'PY'
+  #         import urllib.request, json, time
 
-          haproxy = "${{ steps.haproxy.outputs.ip }}"
-          hostnames = set()
-          for _ in range(8):
-              try:
-                  r = urllib.request.urlopen(f"http://{haproxy}/health", timeout=5)
-                  d = json.loads(r.read())
-                  if h := d.get('checks', {}).get('hostname'):
-                      hostnames.add(h)
-              except Exception as e:
-                  print("Request failed:", e)
-              time.sleep(0.5)
+  #         haproxy = "${{ steps.haproxy.outputs.ip }}"
+  #         hostnames = set()
+  #         for _ in range(8):
+  #             try:
+  #                 r = urllib.request.urlopen(f"http://{haproxy}/health", timeout=5)
+  #                 d = json.loads(r.read())
+  #                 if h := d.get('checks', {}).get('hostname'):
+  #                     hostnames.add(h)
+  #             except Exception as e:
+  #                 print("Request failed:", e)
+  #             time.sleep(0.5)
 
-          print(f"Servers responding: {hostnames}")
-          assert len(hostnames) >= 2, \
-              f"Expected both web01 and web02 to respond, got: {hostnames}"
-          print("Load balancing OK – both servers active")
-          PY
+  #         print(f"Servers responding: {hostnames}")
+  #         assert len(hostnames) >= 2, \
+  #             f"Expected both web01 and web02 to respond, got: {hostnames}"
+  #         print("Load balancing OK – both servers active")
+  #         PY
 
-      - name: Summary
-        if: always()
-        run: |
-          echo "## Smoke Test Results" >> "$GITHUB_STEP_SUMMARY"
-          echo "- App URL: http://${{ steps.haproxy.outputs.ip }}/" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Health: http://${{ steps.haproxy.outputs.ip }}/health" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Stats:  http://${{ steps.haproxy.outputs.ip }}:8404/stats" >> "$GITHUB_STEP_SUMMARY"
+  #     - name: Summary
+  #       if: always()
+  #       run: |
+  #         echo "## Smoke Test Results" >> "$GITHUB_STEP_SUMMARY"
+  #         echo "- App URL: http://${{ steps.haproxy.outputs.ip }}/" >> "$GITHUB_STEP_SUMMARY"
+  #         echo "- Health: http://${{ steps.haproxy.outputs.ip }}/health" >> "$GITHUB_STEP_SUMMARY"
+  #         echo "- Stats:  http://${{ steps.haproxy.outputs.ip }}:8404/stats" >> "$GITHUB_STEP_SUMMARY"

@@ -55,8 +55,8 @@ ansible/
 ├── requirements.txt
 ├── collection-requirements.yml
 ├── run.sh                          # wrapper: macOS env fixes + preflight checks
-├── main.yml                        # full provisioning playbook
-├── db.yml / web.yml / haproxy.yml  # subset playbooks
+├── main.yml                        # full provisioning playbook (A → B → C → D)
+├── db.yml / web.yml / haproxy.yml  # subset playbooks (each re-runs `common` first)
 ├── inventory/
 │   ├── aws_ec2.yml                 # tag:Project=lmc auto-discovery + SSM
 │   └── group_vars/{all,web}.yml

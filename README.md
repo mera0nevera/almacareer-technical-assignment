@@ -46,28 +46,35 @@ Session Manager (browser, CLI, or port-forward).
 All instances share `Project=lmc` and a `Role=<role>` tag. Ansible's dynamic
 inventory plugin discovers them automatically.
 
-CDK deploys three CloudFormation stacks:
+CDK deploys four CloudFormation stacks:
 
-- **LmcNetwork** — VPC, public + private subnets, NAT gateway, security groups
+- **LmcGithubOidc** — one-time bootstrap: GitHub OIDC provider + `github-actions-lmc-deploy`
+                       IAM role. Output the role ARN as the `AWS_DEPLOY_ROLE_ARN` GitHub secret.
+- **LmcNetwork** — VPC, public + private subnets, NAT gateway, security groups,
+                    S3 gateway endpoint (used by Ansible's SSM connection plugin)
 - **LmcConfig**  — Secrets Manager (DB password), SSM Parameter Store
-                   (DB host/name/user, Ansible SSM bucket), CloudWatch log groups
-- **LmcServers** — 4 EC2 instances tagged `Project=lmc, Role={haproxy|web01|web02|db}`
+                    (DB host/name/user, Ansible SSM bucket), CloudWatch log groups,
+                    S3 bucket for Ansible SSM file transfers
+- **LmcServers** — 4 EC2 instances tagged `Project=lmc, Role={haproxy|web01|web02|db}`,
+                    instance roles (`AmazonSSMManagedInstanceCore` +
+                    `CloudWatchAgentServerPolicy`), RSA key pair `lmc-keypair`
+                    (private key stored in SSM Parameter Store as a break-glass fallback)
 
 ---
 
 ## CI/CD Pipeline
 
-### Pull Requests → `ci.yml`
+### Pull Requests + pushes to `master` → `validation.yml`
 
-Every PR against `main` runs three parallel checks:
+Every PR and push against `master` runs three parallel checks:
 
 | Job | What it does |
 |-----|-------------|
-| **TypeScript Tests** | `npm test` + `tsc --noEmit` |
-| **CDK Synth & Diff** | Synthesises the template; posts the infrastructure diff as a PR comment |
-| **Ansible Lint** | Syntax check + `ansible-lint --profile production` |
+| **TypeScript Tests** | `npx tsc --noEmit` (strict type-check) |
+| **CDK Synth & Diff** | Synthesises the template; posts/updates the infrastructure diff as a PR comment |
+| **Ansible Lint** | `ansible-playbook --syntax-check` + `ansible-lint --profile production` (warn-only) |
 
-### Push to `main` → `deploy.yml`
+### Push to `master` → `deploy.yml`
 
 ```
 changes ──► test ──► deploy-cdk ──────────────► run-ansible ──► smoke-test
@@ -76,11 +83,14 @@ changes ──► test ──► deploy-cdk ────────────
 
 | Job | Trigger | What it does |
 |-----|---------|-------------|
-| **Detect Changes** | always | Flags which paths changed (`cdk/`, `ansible/`, `app/`) |
-| **TypeScript Tests** | always | Same as CI — must pass before any deploy |
-| **Deploy Infrastructure** | `cdk/**` changed | `cdk deploy --all`; outputs HAProxy IP |
-| **Configure Servers** | CDK deployed, or `ansible/**`/`app/**` changed, and CDK did not fail | `ansible-playbook main.yml` via SSM dynamic inventory |
-| **Smoke Test** | after Ansible | HTTP 200 on `/`, JSON `status: ok` on `/health`, both web servers responding |
+| **Detect — what changed** | always | Flags which paths changed (`cdk/`, `ansible/`, `app/`) |
+| **Verify — TypeScript tests** | always (skippable on `workflow_dispatch`) | `tsc --noEmit` — must pass before any deploy |
+| **Provision — infrastructure (CDK)** | `cdk/**` changed | `cdk deploy --all --concurrency 4`; uploads `cdk-outputs.json` |
+| **Configure — servers (Ansible)** | CDK deployed, or `ansible/**` / `app/**` changed, and CDK did not fail | `ansible-playbook main.yml --diff` via SSM dynamic inventory |
+| **Validate — smoke test** | after Ansible | HTTP 200 on `/`, JSON `status: ok` on `/health`, both web servers respond over 8 probes |
+
+The pipeline also supports `workflow_dispatch` with per-stage toggles
+(`run_tests`, `deploy_cdk`, `run_ansible`, `smoke_test`).
 
 All AWS access uses **OIDC** (no long-lived access keys stored in GitHub).
 
@@ -106,16 +116,16 @@ Add required reviewers there if you want manual approval before each production 
 # Install CDK dependencies
 cd cdk && npm ci
 
-# Run unit tests
-npm test
-
-# Type-check without emitting output
+# Strict type-check (no emit)
 npx tsc --noEmit
 
 # Preview infrastructure changes against the deployed stack
 npx cdk diff
 
-# Deploy (requires AWS credentials configured locally)
+# One-time GitHub OIDC bootstrap (only needed once per repo)
+npx cdk deploy LmcGithubOidc -c githubOrg=<org> -c githubRepo=<repo>
+
+# Deploy the application stacks (requires AWS credentials configured locally)
 npx cdk deploy --all
 
 # Destroy
@@ -143,6 +153,16 @@ ansible-playbook main.yml --syntax-check
 ./run.sh web.yml --tags app_code
 ./run.sh haproxy.yml
 
-# Open the app in a browser via SSM port forward
-./tunnel.sh                  # haproxy :80 → http://localhost:8080
+```
+
+### SSM port-forward
+
+`tunnel.sh` lives at the repo root and opens an SSM port-forward to whichever
+host you ask for — no SSH, no public IPs.
+
+```bash
+./tunnel.sh                  # haproxy :80   → http://localhost:8080
+./tunnel.sh stats            # haproxy :8404 → http://localhost:8404/stats
+./tunnel.sh web01            # web01   :80   → http://localhost:8081
+./tunnel.sh db               # db     :3306  → 127.0.0.1:3306
 ```

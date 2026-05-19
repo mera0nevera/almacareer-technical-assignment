@@ -42,7 +42,7 @@ backend webservers
 {% endfor %}
 
 
-backend health_be
+backend health
     balance     roundrobin
     option      httpchk GET /health
     http-check  expect status 200
